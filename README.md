@@ -7,7 +7,7 @@ https://github.com/utiasDSL/gym-pybullet-drones
 
 ## Installation
 
-Tested on Intel x64/Ubuntu 22.04 and Apple Silicon/macOS 14.1.
+Developed for x64/Ubuntu 22.04
 
 ```sh
 git clone https://github.com/utiasDSL/gym-pybullet-drones.git
@@ -21,7 +21,14 @@ pip3 install -e . # if needed, `sudo apt install build-essential` to install `gc
 
 ```
 
-## Use
+## Cattle Herding Usage
+
+```sh
+cd gym_pybullet_drones/examples/
+python3 CattleHerder.py
+```
+
+## Examples
 
 ### PID control examples
 
@@ -45,6 +52,7 @@ cd gym_pybullet_drones/examples/
 python learn.py # task: single drone hover at z == 1.0
 python learn.py --multiagent true # task: 2-drone hover at z == 1.2 and 0.7
 ```
+
 
 <img src="gym_pybullet_drones/assets/rl.gif" alt="rl example" width="375"> <img src="gym_pybullet_drones/assets/marl.gif" alt="marl example" width="375">
 
@@ -80,15 +88,3 @@ python3 beta.py --num_drones 1 # check the steps in the file's docstrings to use
 ## Citation
 
 If you wish, please cite our [IROS 2021 paper](https://arxiv.org/abs/2103.02142) ([and original codebase](https://github.com/utiasDSL/gym-pybullet-drones/tree/paper)) as
-
-```bibtex
-@INPROCEEDINGS{panerati2021learning,
-      title={Learning to Fly---a Gym Environment with PyBullet Physics for Reinforcement Learning of Multi-agent Quadcopter Control}, 
-      author={Jacopo Panerati and Hehui Zheng and SiQi Zhou and James Xu and Amanda Prorok and Angela P. Schoellig},
-      booktitle={2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)},
-      year={2021},
-      volume={},
-      number={},
-      pages={7512-7519},
-      doi={10.1109/IROS51168.2021.9635857}
-}
