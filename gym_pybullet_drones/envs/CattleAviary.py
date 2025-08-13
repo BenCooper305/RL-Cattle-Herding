@@ -1,10 +1,10 @@
 import numpy as np
+import pybullet as p
 
 from gym_pybullet_drones.envs.BaseRLAviary import BaseRLAviary
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType
-from gym_pybullet_drones.utils.herdeq import InteractionForce
 
-class CowAviary(BaseRLAviary):
+class CattleAviary(BaseRLAviary):
     """Multi-agent RL problem: leader-follower."""
 
     ################################################################################
@@ -69,7 +69,12 @@ class CowAviary(BaseRLAviary):
                          obs=obs,
                          act=act
                          )
-        self.TARGET_POS = self.INIT_XYZS + np.array([[0,0,1/(i+1)] for i in range(num_drones)])
+        
+        #Setting Goals
+        self.TARGET_POS = self.INIT_XYZS + np.array([[2/(i+1),2/(i+1),2/(i+1)] for i in range(num_drones)])
+        self.GOAL_POS = np.array([-2,-2,0.5])
+        self.SpawnHerd(1)
+        self.SpawnGoal(self.GOAL_POS)
 
     ################################################################################
     
@@ -82,13 +87,17 @@ class CowAviary(BaseRLAviary):
             The reward.
 
         """
+    
         states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
         reward = 0
-        for i in range(self.NUM_DRONES):
-            reward += max(0, 2 - np.linalg.norm(self.TARGET_POS[i,:]-states[i][0:3])**4)
-        return reward
-    
+        threshold = 3.5
+        max_reward = threshold ** 2  # 12.25
 
+        for i in range(self.NUM_DRONES):
+            dist = np.linalg.norm(self.GOAL_POS - states[i][0:3])
+            reward += max(0, max_reward - dist**2)
+
+        return reward
 
     ################################################################################
     
@@ -121,12 +130,12 @@ class CowAviary(BaseRLAviary):
             Whether the current episode timed out.
 
         """
-        states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
-        for i in range(self.NUM_DRONES):
-            if (abs(states[i][0]) > 2.0 or abs(states[i][1]) > 2.0 or states[i][2] > 2.0 # Truncate when a drones is too far away
-             or abs(states[i][7]) > .4 or abs(states[i][8]) > .4 # Truncate when a drone is too tilted
-            ):
-                return True
+        # states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        # for i in range(self.NUM_DRONES):
+        #     if (abs(states[i][0]) > 2.0 or abs(states[i][1]) > 2.0 or states[i][2] > 2.0 # Truncate when a drones is too far away
+        #      or abs(states[i][7]) > .4 or abs(states[i][8]) > .4 # Truncate when a drone is too tilted
+        #     ):
+        #         return True
         if self.step_counter/self.PYB_FREQ > self.EPISODE_LEN_SEC:
             return True
         else:
@@ -146,3 +155,75 @@ class CowAviary(BaseRLAviary):
 
         """
         return {"answer": 42} #### Calculated by the Deep Thought supercomputer in 7.5M years
+
+    ################################################################################
+
+    def GetDroneDistances(self):
+        distances = []
+        """Computes the current info dict(s).
+        Unused.
+
+        Returns
+        -------
+        dict[str, int]
+            Dummy value.
+
+        """
+        return distances
+    
+    ################################################################################
+
+    def GetDistanceToHerd(self):
+        distance = []
+        """Computes the current info dict(s).
+        Unused.
+
+        Returns
+        -------
+        dict[str, int]
+            Dummy value.
+
+        """
+        return distance
+    
+    ################################################################################
+
+    #attractive/repulsive force equation
+    def InteractionForce(xi, xj, a, c, d):
+        exponent = -((abs(xi-xj) - d)/ c)
+        numerator = a * (1- np.exp(exponent))
+        denominator = 1 + abs(xi-xj)
+        force = numerator/denominator * xi-xj
+        return force
+
+     ################################################################################
+
+    def SpawnHerd(self,herdSize):
+        """Add obstacles to the environment.
+
+        These obstacles are loaded from standard URDF files included in Bullet.
+
+        """
+        p.loadURDF("cube_no_rotation.urdf",
+                   [2, 2, .1],
+                   p.getQuaternionFromEuler([0, 0, 0]),
+                   globalScaling=0.2,
+                   physicsClientId=self.CLIENT
+                   )
+    
+    ################################################################################
+
+    def SpawnGoal(self, goalPos):
+        """Add obstacles to the environment.
+
+        These obstacles are loaded from standard URDF files included in Bullet.
+
+        """
+        p.loadURDF("sphere2.urdf",
+                   [goalPos[0], goalPos[1], goalPos[2]],
+                   p.getQuaternionFromEuler([0,0,0]),
+                   globalScaling=0.2,
+                   physicsClientId=self.CLIENT
+                   )
+    
+    ################################################################################

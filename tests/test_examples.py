@@ -1,5 +1,5 @@
 def test_pid():
-    from gym_pybullet_drones.examples.pid import run
+    from gym_pybullet_drones.examples.old.pid import run
     run(gui=False, plot=False, output_folder='tmp')
 
 def test_pid_velocity():
@@ -11,5 +11,5 @@ def test_downwash():
     run(gui=False, plot=False, output_folder='tmp')
 
 def test_learn():
-    from gym_pybullet_drones.examples.learn import run
+    from gym_pybullet_drones.examples.old.learn import run
     run(gui=False, plot=False, output_folder='tmp', local=False)

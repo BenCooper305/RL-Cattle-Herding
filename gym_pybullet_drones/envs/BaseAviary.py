@@ -484,11 +484,11 @@ class BaseAviary(gym.Env):
         self.PLANE_ID = p.loadURDF("plane.urdf", physicsClientId=self.CLIENT)
 
         self.DRONE_IDS = np.array([p.loadURDF(pkg_resources.resource_filename('gym_pybullet_drones', 'assets/'+self.URDF),
-                                              self.INIT_XYZS[i,:],
-                                              p.getQuaternionFromEuler(self.INIT_RPYS[i,:]),
-                                              flags = p.URDF_USE_INERTIA_FROM_FILE,
-                                              physicsClientId=self.CLIENT
-                                              ) for i in range(self.NUM_DRONES)])
+                                    self.INIT_XYZS[i,:],
+                                    p.getQuaternionFromEuler(self.INIT_RPYS[i,:]),
+                                    flags = p.URDF_USE_INERTIA_FROM_FILE,
+                                    physicsClientId=self.CLIENT
+                                    ) for i in range(self.NUM_DRONES)])
         #### Remove default damping #################################
         # for i in range(self.NUM_DRONES):
         #     p.changeDynamics(self.DRONE_IDS[i], -1, linearDamping=0, angularDamping=0)

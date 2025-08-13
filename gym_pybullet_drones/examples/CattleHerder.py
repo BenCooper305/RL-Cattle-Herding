@@ -1,40 +1,39 @@
 """Script demonstrating the use of `gym_pybullet_drones`'s Gymnasium interface.
 
-Classes HoverAviary and MultiHoverAviary are used as learning envs for the PPO algorithm.
-
-Example
 -------
 In a terminal, run as:
 
+    $ conda activate drones
     $ python CattleHerder.py
 
 """
 import os
 import time
-from datetime import datetime
-import argparse
-import gymnasium as gym
-import numpy as np
 import torch
+import argparse
+import numpy as np
+import gymnasium as gym
+from datetime import datetime
+
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.callbacks import EvalCallback, StopTrainingOnRewardThreshold
 from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.callbacks import EvalCallback, StopTrainingOnRewardThreshold
 
 from gym_pybullet_drones.utils.Logger import Logger
-from gym_pybullet_drones.envs.CowAviary import CowAviary
+from gym_pybullet_drones.envs.CattleAviary import CattleAviary
 from gym_pybullet_drones.utils.utils import sync, str2bool
 from gym_pybullet_drones.utils.enums import ObservationType, ActionType
 
-DEFAULT_GUI = False
+DEFAULT_GUI = True
 DEFAULT_RECORD_VIDEO = False
 DEFAULT_OUTPUT_FOLDER = 'models'
 DEFAULT_COLAB = False
-TARGET_REWARD = 920
+TARGET_REWARD = 4800
 
-DEFAULT_OBS = ObservationType('kin') # 'kin' or 'rgb'
-DEFAULT_ACT = ActionType('one_d_rpm') # 'rpm' or 'pid' or 'vel' or 'one_d_rpm' or 'one_d_pid'
-DEFAULT_AGENTS = 3
+DEFAULT_OBS = ObservationType('cokin') #collabrative kinematicsa
+DEFAULT_ACT = ActionType('vel') # 'rpm' or 'pid' or 'vel' or 'one_d_rpm' or 'one_d_pid'
+DEFAULT_AGENTS = 4
 
 def run(
         target_reward = TARGET_REWARD,
@@ -51,8 +50,8 @@ def run(
 
     env_kwargs = dict(num_drones=DEFAULT_AGENTS, obs=DEFAULT_OBS, act=DEFAULT_ACT)
 
-    train_env = make_vec_env(CowAviary, env_kwargs= env_kwargs, n_envs=1, seed=0)
-    eval_env = CowAviary(num_drones=DEFAULT_AGENTS, obs=DEFAULT_OBS, act=DEFAULT_ACT)
+    train_env = make_vec_env(CattleAviary, env_kwargs= env_kwargs, n_envs=1, seed=0)
+    eval_env = CattleAviary(num_drones=DEFAULT_AGENTS, obs=DEFAULT_OBS, act=DEFAULT_ACT)
 
     #### Check the environment's spaces ########################
     print('[INFO] Action space:', train_env.action_space)
@@ -64,11 +63,6 @@ def run(
                 # tensorboard_log=filename+'/tb/',
                 verbose=1)
 
-    #### Target cumulative rewards (problem-dependent) ##########
-    if DEFAULT_ACT == ActionType.ONE_D_RPM:
-        target_reward =  target_reward + 29.5
-    else:
-        target_reward =  target_reward
     callback_on_best = StopTrainingOnRewardThreshold(reward_threshold=target_reward, verbose=1)
     eval_callback = EvalCallback(eval_env,
                                  callback_on_new_best=callback_on_best,
@@ -78,9 +72,9 @@ def run(
                                  eval_freq=int(1000),
                                  deterministic=True,
                                  render=False)
-    model.learn(total_timesteps=int(1e7) if local else int(1e2), # shorter training in GitHub Actions pytest
-                callback=eval_callback,
-                log_interval=100)
+    
+                #shorter training in GitHub Actions pytest
+    model.learn(total_timesteps=int(1e7) if local else int(1e2), callback=eval_callback, log_interval=100)
 
     #### Save the model ########################################
     model.save(filename+'/final_model.zip')
@@ -96,8 +90,6 @@ def run(
     if local:
         input("Press Enter to continue...")
 
-    # if os.path.isfile(filename+'/final_model.zip'):
-    #     path = filename+'/final_model.zip'
     if os.path.isfile(filename+'/best_model.zip'):
         path = filename+'/best_model.zip'
     else:
@@ -105,18 +97,19 @@ def run(
     model = PPO.load(path)
 
     #### Show (and record a video of) the model's performance ##
-    test_env = CowAviary(gui=gui,
-                                    num_drones=DEFAULT_AGENTS,
-                                    obs=DEFAULT_OBS,
-                                    act=DEFAULT_ACT,
-                                    record=record_video)
-    test_env_nogui = CowAviary(num_drones=DEFAULT_AGENTS, obs=DEFAULT_OBS, act=DEFAULT_ACT)
+    test_env = CattleAviary(gui=gui,
+                        num_drones=DEFAULT_AGENTS,
+                        obs=DEFAULT_OBS,
+                        act=DEFAULT_ACT,
+                        record=record_video)
+    
+    test_env_nogui = CattleAviary(num_drones=DEFAULT_AGENTS, obs=DEFAULT_OBS, act=DEFAULT_ACT)
 
     logger = Logger(logging_freq_hz=int(test_env.CTRL_FREQ),
-                num_drones=DEFAULT_AGENTS,
-                output_folder=output_folder,
-                colab=colab
-                )
+                    num_drones=DEFAULT_AGENTS,
+                    output_folder=output_folder,
+                    colab=colab
+                    )
 
     mean_reward, std_reward = evaluate_policy(model, test_env_nogui, n_eval_episodes=10)
     print("\n\n\nMean reward ", mean_reward, " +- ", std_reward, "\n\n")
@@ -131,17 +124,16 @@ def run(
         act2 = action.squeeze()
         print("Obs:", obs, "\tAction", action, "\tReward:", reward, "\tTerminated:", terminated, "\tTruncated:", truncated)
 
-        if DEFAULT_OBS == ObservationType.KIN:
-            for d in range(DEFAULT_AGENTS):
-                logger.log(drone=d,
-                    timestamp=i/test_env.CTRL_FREQ,
-                    state=np.hstack([obs2[d][0:3],
-                                        np.zeros(4),
-                                        obs2[d][3:15],
-                                        act2[d]
-                                        ]),
-                    control=np.zeros(12)
-                    )
+        for d in range(DEFAULT_AGENTS):
+            logger.log(drone=d,
+                timestamp=i/test_env.CTRL_FREQ,
+                state=np.hstack([obs2[d][0:3],
+                                np.zeros(4),
+                                obs2[d][3:15],
+                                act2[d]
+                                ]),
+                control=np.zeros(12)
+                )
         test_env.render()
         print(terminated)
         sync(i, start, test_env.CTRL_TIMESTEP)
@@ -149,7 +141,7 @@ def run(
             obs = test_env.reset(seed=42, options={})
     test_env.close()
 
-    if plot and DEFAULT_OBS == ObservationType.KIN:
+    if plot:
         logger.plot()
 
 if __name__ == '__main__':

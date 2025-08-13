@@ -5,8 +5,8 @@ from gymnasium import spaces
 from collections import deque
 
 from gym_pybullet_drones.envs.BaseAviary import BaseAviary
-from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType, ImageType
 from gym_pybullet_drones.control.DSLPIDControl import DSLPIDControl
+from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType, ImageType
 
 class BaseRLAviary(BaseAviary):
     """Base single and multi-agent environment class for reinforcement learning."""
@@ -24,7 +24,7 @@ class BaseRLAviary(BaseAviary):
                  ctrl_freq: int = 240,
                  gui=False,
                  record=False,
-                 obs: ObservationType=ObservationType.KIN,
+                 obs: ObservationType=ObservationType.COKIN,
                  act: ActionType=ActionType.RPM
                  ):
         """Initialization of a generic single and multi-agent RL environment.
@@ -103,6 +103,13 @@ class BaseRLAviary(BaseAviary):
         Overrides BaseAviary's method.
 
         """
+        p.loadURDF("sphere2.urdf",
+            [1, 1, 1],
+            p.getQuaternionFromEuler([0,0,0]),
+            globalScaling=0.6,
+            physicsClientId=self.CLIENT
+            )
+
         if self.OBS_TYPE == ObservationType.RGB:
             p.loadURDF("block.urdf",
                        [1, 0, .1],
@@ -249,35 +256,7 @@ class BaseRLAviary(BaseAviary):
             A Box() of shape (NUM_DRONES,H,W,4) or (NUM_DRONES,12) depending on the observation type.
 
         """
-        if self.OBS_TYPE == ObservationType.RGB:
-            return spaces.Box(low=0,
-                              high=255,
-                              shape=(self.NUM_DRONES, self.IMG_RES[1], self.IMG_RES[0], 4), dtype=np.uint8)
-        elif self.OBS_TYPE == ObservationType.KIN:
-            ############################################################
-            #### OBS SPACE OF SIZE 12
-            #### Observation vector ### X        Y        Z       Q1   Q2   Q3   Q4   R       P       Y       VX       VY       VZ       WX       WY       WZ
-            lo = -np.inf
-            hi = np.inf
-            obs_lower_bound = np.array([[lo,lo,0, lo,lo,lo,lo,lo,lo,lo,lo,lo] for i in range(self.NUM_DRONES)])
-            obs_upper_bound = np.array([[hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi] for i in range(self.NUM_DRONES)])
-            #### Add action buffer to observation space ################
-            act_lo = -1
-            act_hi = +1
-            for i in range(self.ACTION_BUFFER_SIZE):
-                if self.ACT_TYPE in [ActionType.RPM, ActionType.VEL]:
-                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo,act_lo,act_lo,act_lo] for i in range(self.NUM_DRONES)])])
-                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi,act_hi,act_hi,act_hi] for i in range(self.NUM_DRONES)])])
-                elif self.ACT_TYPE==ActionType.PID:
-                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo,act_lo,act_lo] for i in range(self.NUM_DRONES)])])
-                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi,act_hi,act_hi] for i in range(self.NUM_DRONES)])])
-                elif self.ACT_TYPE in [ActionType.ONE_D_RPM, ActionType.ONE_D_PID]:
-                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo] for i in range(self.NUM_DRONES)])])
-                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi] for i in range(self.NUM_DRONES)])])
-            return spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32)
-            ############################################################
-        elif self.OBS_TYPE == ObservationType.COKIN:
-            print("[ERROR] USING COKIN COKIN COKIN")
+        if self.OBS_TYPE == ObservationType.COKIN:
             ############################################################
             #### OBS SPACE OF SIZE 12
             #### Observation vector ### X        Y        Z       Q1   Q2   Q3   Q4   R       P       Y       VX       VY       VZ       WX       WY       WZ
@@ -315,22 +294,7 @@ class BaseRLAviary(BaseAviary):
             A Box() of shape (NUM_DRONES,H,W,4) or (NUM_DRONES,12) depending on the observation type.
 
         """
-        if self.OBS_TYPE == ObservationType.RGB:
-            if self.step_counter%self.IMG_CAPTURE_FREQ == 0:
-                for i in range(self.NUM_DRONES):
-                    self.rgb[i], self.dep[i], self.seg[i] = self._getDroneImages(i,
-                                                                                 segmentation=False
-                                                                                 )
-                    #### Printing observation to PNG frames example ############
-                    if self.RECORD:
-                        self._exportImage(img_type=ImageType.RGB,
-                                          img_input=self.rgb[i],
-                                          path=self.ONBOARD_IMG_PATH+"drone_"+str(i),
-                                          frame_num=int(self.step_counter/self.IMG_CAPTURE_FREQ)
-                                          )
-            return np.array([self.rgb[i] for i in range(self.NUM_DRONES)]).astype('float32')
-        elif self.OBS_TYPE == ObservationType.KIN:
-            ############################################################
+        if self.OBS_TYPE == ObservationType.COKIN:
             #### OBS SPACE OF SIZE 12
             obs_12 = np.zeros((self.NUM_DRONES,12))
             for i in range(self.NUM_DRONES):
@@ -342,6 +306,5 @@ class BaseRLAviary(BaseAviary):
             for i in range(self.ACTION_BUFFER_SIZE):
                 ret = np.hstack([ret, np.array([self.action_buffer[i][j, :] for j in range(self.NUM_DRONES)])])
             return ret
-            ############################################################
         else:
             print("[ERROR] in BaseRLAviary._computeObs()")
