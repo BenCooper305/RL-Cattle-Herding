@@ -52,3 +52,7 @@ def str2bool(val):
         return False
     else:
         raise argparse.ArgumentTypeError("[ERROR] in str2bool(), a Boolean value is expected")
+
+
+def unit_vector(vector):
+    return np.array(vector) / (1+np.linalg.norm(vector))

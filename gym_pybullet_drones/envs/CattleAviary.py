@@ -92,11 +92,14 @@ class CattleAviary(BaseRLAviary):
         reward = 0
         threshold = 3.5
         max_reward = threshold ** 2  # 12.25
+        totalDistance = 0
 
         for i in range(self.NUM_DRONES):
             dist = np.linalg.norm(self.GOAL_POS - states[i][0:3])
+            totalDistance += dist
             reward += max(0, max_reward - dist**2)
 
+        #print(f"[LOG] Average distace: {totalDistance/self.NUM_DRONES}")
         return reward
 
     ################################################################################
@@ -115,6 +118,7 @@ class CattleAviary(BaseRLAviary):
         for i in range(self.NUM_DRONES):
             dist += np.linalg.norm(self.TARGET_POS[i,:]-states[i][0:3])
         if dist < .0001:
+            #print("[LOG] TERMINACTED!")
             return True
         else:
             return False
@@ -137,6 +141,7 @@ class CattleAviary(BaseRLAviary):
         #     ):
         #         return True
         if self.step_counter/self.PYB_FREQ > self.EPISODE_LEN_SEC:
+            #print("[LOG] TRUNCTAED!")
             return True
         else:
             return False
@@ -185,16 +190,6 @@ class CattleAviary(BaseRLAviary):
 
         """
         return distance
-    
-    ################################################################################
-
-    #attractive/repulsive force equation
-    def InteractionForce(xi, xj, a, c, d):
-        exponent = -((abs(xi-xj) - d)/ c)
-        numerator = a * (1- np.exp(exponent))
-        denominator = 1 + abs(xi-xj)
-        force = numerator/denominator * xi-xj
-        return force
 
      ################################################################################
 
@@ -225,5 +220,44 @@ class CattleAviary(BaseRLAviary):
                    globalScaling=0.2,
                    physicsClientId=self.CLIENT
                    )
+        
     
     ################################################################################
+
+    def _addObstacles(self):
+        """Add obstacles to the environment.
+
+        Only if the observation is of type RGB, 4 landmarks are added.
+        Overrides BaseAviary's method.
+
+        """
+        p.loadURDF("sphere2.urdf",
+            [1, 1, 1],
+            p.getQuaternionFromEuler([0,0,0]),
+            globalScaling=0.6,
+            physicsClientId=self.CLIENT
+            )
+
+        if self.OBS_TYPE == ObservationType.RGB:
+            p.loadURDF("block.urdf",
+                       [1, 0, .1],
+                       p.getQuaternionFromEuler([0, 0, 0]),
+                       physicsClientId=self.CLIENT
+                       )
+            p.loadURDF("cube_small.urdf",
+                       [0, 1, .1],
+                       p.getQuaternionFromEuler([0, 0, 0]),
+                       physicsClientId=self.CLIENT
+                       )
+            p.loadURDF("duck_vhacd.urdf",
+                       [-1, 0, .1],
+                       p.getQuaternionFromEuler([0, 0, 0]),
+                       physicsClientId=self.CLIENT
+                       )
+            p.loadURDF("teddy_vhacd.urdf",
+                       [0, -1, .1],
+                       p.getQuaternionFromEuler([0, 0, 0]),
+                       physicsClientId=self.CLIENT
+                       )
+        else:
+            pass
