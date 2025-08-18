@@ -13,6 +13,8 @@ import pybullet as p
 import pybullet_data
 import gymnasium as gym
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ImageType
+from gym_pybullet_drones.utils.flockUtils import MathematicalFlock
+import gym_pybullet_drones.utils.utils as utils
 
 
 class BaseAviary(gym.Env):
@@ -24,7 +26,8 @@ class BaseAviary(gym.Env):
 
     def __init__(self,
                  drone_model: DroneModel=DroneModel.CF2X,
-                 num_drones: int=1,
+                 num_drones: int=2,
+                 num_cattel: int=1,
                  neighbourhood_radius: float=np.inf,
                  initial_xyzs=None,
                  initial_rpys=None,
@@ -83,7 +86,9 @@ class BaseAviary(gym.Env):
         self.PYB_TIMESTEP = 1. / self.PYB_FREQ
         #### Parameters ############################################
         self.NUM_DRONES = num_drones
+        self.NUM_CATTLE = num_cattel
         self.NEIGHBOURHOOD_RADIUS = neighbourhood_radius
+        self.DRONE_TARGET_ALTITUDE = 0.4
         #### Options ###############################################
         self.DRONE_MODEL = drone_model
         self.GUI = gui
@@ -192,10 +197,17 @@ class BaseAviary(gym.Env):
                                                             )
         #### Set initial poses #####################################
         if initial_xyzs is None:
-            self.INIT_XYZS = np.vstack([np.array([x*4*self.L for x in range(self.NUM_DRONES)]), \
-                                        np.array([y*4*self.L for y in range(self.NUM_DRONES)]), \
-                                        np.ones(self.NUM_DRONES) * (self.COLLISION_H/2-self.COLLISION_Z_OFFSET+.1)]).transpose().reshape(self.NUM_DRONES, 3)
-        elif np.array(initial_xyzs).shape == (self.NUM_DRONES,3):
+            self.INIT_XYZS = np.vstack([
+                np.array([j*4*self.L +0.1 for j in range(self.NUM_DRONES)]),  # x = 0 for all drones
+                np.array([y*4*self.L +0.1 for y in range(self.NUM_DRONES)]),  # spread along y
+                np.ones(self.NUM_DRONES) * self.DRONE_TARGET_ALTITUDE # z = 0.5 for all drones
+            ]).T.reshape(self.NUM_DRONES, 3)
+            # self.INIT_XYZS = np.vstack([np.array([x*4*self.L for x in range(self.NUM_DRONES)]), \
+            #                             np.array([y*4*self.L for y in range(self.NUM_DRONES)]), \
+            #                             np.ones(self.NUM_DRONES) * (self.COLLISION_H/2-self.COLLISION_Z_OFFSET+.1
+            #                             )]).transpose().reshape(self.NUM_DRONES, 3)
+
+        elif np.array(initial_xyzs).shape == (self.NUM_DRONES, 3):
             self.INIT_XYZS = initial_xyzs
         else:
             print("[ERROR] invalid initial_xyzs in BaseAviary.__init__(), try initial_xyzs.reshape(NUM_DRONES,3)")
@@ -241,7 +253,6 @@ class BaseAviary(gym.Env):
         """
 
         # TODO : initialize random number generator with seed
-
         p.resetSimulation(physicsClientId=self.CLIENT)
         #### Housekeeping ##########################################
         self._housekeeping()
@@ -380,6 +391,7 @@ class BaseAviary(gym.Env):
         info = self._computeInfo()
         #### Advance the step counter ##############################
         self.step_counter = self.step_counter + (1 * self.PYB_STEPS_PER_CTRL)
+        #self._flockingStep()
         return obs, reward, terminated, truncated, info
     
     ################################################################################
@@ -446,6 +458,20 @@ class BaseAviary(gym.Env):
         """
         return self.DRONE_IDS
     
+
+    ################################################################################
+
+    def getDroneIds(self):
+        """Return the Cattel Ids.
+
+        Returns
+        -------
+        ndarray:
+            (NUM_CATTEL,)-shaped array of ints containing the cattel' ids.
+
+        """
+        return self.CATTEL_IDS
+    
     ################################################################################
 
     def _housekeeping(self):
@@ -473,6 +499,13 @@ class BaseAviary(gym.Env):
         self.rpy = np.zeros((self.NUM_DRONES, 3))
         self.vel = np.zeros((self.NUM_DRONES, 3))
         self.ang_v = np.zeros((self.NUM_DRONES, 3))
+        #### Initialize the cows kinemaatic information ##########
+        self.cattle_pos = np.zeros((self.NUM_CATTLE, 3))
+        self.cattle_quat = np.zeros((self.NUM_CATTLE, 4))
+        self.cattle_rpy = np.zeros((self.NUM_CATTLE, 3))
+        self.cattle_vel = np.zeros((self.NUM_CATTLE, 3))
+        self.cattle_ang_v = np.zeros((self.NUM_CATTLE, 3))
+        ###########################################################
         if self.PHYSICS == Physics.DYN:
             self.rpy_rates = np.zeros((self.NUM_DRONES, 3))
         #### Set PyBullet's parameters #############################
@@ -489,6 +522,54 @@ class BaseAviary(gym.Env):
                                     flags = p.URDF_USE_INERTIA_FROM_FILE,
                                     physicsClientId=self.CLIENT
                                     ) for i in range(self.NUM_DRONES)])
+
+        # self.CATTLE_IDS = np.array([p.loadURDF("cube_no_rotation.urdf",
+        #                             [1, 1, 0.1],
+        #                             p.getQuaternionFromEuler([0, 0, 0]),
+        #                             globalScaling=0.2,
+        #                             physicsClientId=self.CLIENT
+        #                             ) for i in range(self.NUM_CATTLE)])
+
+        # Minimum distance from origin
+        min_radius = 1.0  
+        # Maximum distance you want cattle to spawn
+        max_radius = 3.0  
+
+        # Pick a random angle [0, 2π)
+        theta = np.random.uniform(0, 2*np.pi)
+        # Pick a random radius [min_radius, max_radius)
+        r = np.random.uniform(min_radius, max_radius)
+
+        # Convert polar → Cartesian
+        x = r * np.cos(theta)
+        y = r * np.sin(theta)
+        z = 0.1
+
+        herd_center = np.array([x, y, z])
+
+        self.CATTLE_IDS = []
+        for i in range(self.NUM_CATTLE):
+            # Random offset around the herd centre (e.g., within a 1m radius circle)
+            offset = np.random.uniform(low=0.0, high=1.0, size=2)
+            pos = herd_center[:2] + offset
+            cow_id = p.loadURDF(
+                "cube_no_rotation.urdf",
+                [pos[0], pos[1], herd_center[2]],  # keep z fixed at 0.1
+                p.getQuaternionFromEuler([0, 0, 0]),
+                globalScaling=0.2,
+                physicsClientId=self.CLIENT
+            )
+            self.CATTLE_IDS.append(cow_id)
+
+        self.CATTLE_IDS = np.array(self.CATTLE_IDS)
+                
+        self.CattleCentroidMarker = (p.loadURDF("sphere2.urdf",
+                                    [0,0,-999],
+                                    p.getQuaternionFromEuler([0,0,0]),
+                                    globalScaling=0.2,
+                                    physicsClientId=self.CLIENT
+                                    ))
+        
         #### Remove default damping #################################
         # for i in range(self.NUM_DRONES):
         #     p.changeDynamics(self.DRONE_IDS[i], -1, linearDamping=0, angularDamping=0)
@@ -501,8 +582,6 @@ class BaseAviary(gym.Env):
         #### E.g., to start a drone at [0,0,0] #####################
         # for i in range(self.NUM_DRONES):
             # p.setCollisionFilterPair(bodyUniqueIdA=self.PLANE_ID, bodyUniqueIdB=self.DRONE_IDS[i], linkIndexA=-1, linkIndexB=-1, enableCollision=0, physicsClientId=self.CLIENT)
-        if self.OBSTACLES:
-            self._addObstacles()
     
     ################################################################################
 
@@ -513,11 +592,18 @@ class BaseAviary(gym.Env):
         and improve performance (at the expense of memory).
 
         """
+        # Drones
         for i in range (self.NUM_DRONES):
             self.pos[i], self.quat[i] = p.getBasePositionAndOrientation(self.DRONE_IDS[i], physicsClientId=self.CLIENT)
             self.rpy[i] = p.getEulerFromQuaternion(self.quat[i])
             self.vel[i], self.ang_v[i] = p.getBaseVelocity(self.DRONE_IDS[i], physicsClientId=self.CLIENT)
-    
+
+        # Cattle
+        for j in range(self.NUM_CATTLE):
+            self.cattle_pos[j], self.cattle_quat[j] = p.getBasePositionAndOrientation(self.CATTLE_IDS[j], physicsClientId=self.CLIENT)
+            self.cattle_rpy[j] = p.getEulerFromQuaternion(self.cattle_quat[j])
+            self.cattle_vel[j], self.cattle_ang_v[j] = p.getBaseVelocity(self.CATTLE_IDS[j], physicsClientId=self.CLIENT)
+            
     ################################################################################
 
     def _startVideoRecording(self):
@@ -538,9 +624,7 @@ class BaseAviary(gym.Env):
     
     ################################################################################
 
-    def _getDroneStateVector(self,
-                             nth_drone
-                             ):
+    def _getDroneStateVector(self, nth_drone):
         """Returns the state vector of the n-th drone.
 
         Parameters
@@ -559,6 +643,29 @@ class BaseAviary(gym.Env):
         state = np.hstack([self.pos[nth_drone, :], self.quat[nth_drone, :], self.rpy[nth_drone, :],
                            self.vel[nth_drone, :], self.ang_v[nth_drone, :], self.last_clipped_action[nth_drone, :]])
         return state.reshape(20,)
+
+    ################################################################################
+
+    def _getCowStateVector(self, nth_cow):
+        """Returns the state vector of the n-th cow.
+
+        Parameters
+        ----------
+        nth_cow : int
+            The ordinal number/position of the desired cow.
+
+        Returns
+        -------
+        ndarray
+            (16,)-shaped array of floats containing the state vector of the n-th cow:
+            [pos(3), quat(4), rpy(3), vel(3), ang_v(3)]
+        """
+        state = np.hstack([self.cattle_pos[nth_cow, :],
+                        self.cattle_quat[nth_cow, :],
+                        self.cattle_rpy[nth_cow, :],
+                        self.cattle_vel[nth_cow, :],
+                        self.cattle_ang_v[nth_cow, :]])
+        return state.reshape(16,)
 
     ################################################################################
 
@@ -951,33 +1058,6 @@ class BaseAviary(gym.Env):
                                                       )
     
     ################################################################################
-
-    def _addObstacles(self):
-        """Add obstacles to the environment.
-
-        These obstacles are loaded from standard URDF files included in Bullet.
-
-        """
-        p.loadURDF("samurai.urdf",
-                   physicsClientId=self.CLIENT
-                   )
-        p.loadURDF("duck_vhacd.urdf",
-                   [-.5, -.5, .05],
-                   p.getQuaternionFromEuler([0, 0, 0]),
-                   physicsClientId=self.CLIENT
-                   )
-        p.loadURDF("cube_no_rotation.urdf",
-                   [-.5, -2.5, .5],
-                   p.getQuaternionFromEuler([0, 0, 0]),
-                   physicsClientId=self.CLIENT
-                   )
-        p.loadURDF("sphere2.urdf",
-                   [0, 2, .5],
-                   p.getQuaternionFromEuler([0,0,0]),
-                   physicsClientId=self.CLIENT
-                   )
-    
-    ################################################################################
     
     def _parseURDFParameters(self):
         """Loads parameters from an URDF file.
@@ -1145,3 +1225,60 @@ class BaseAviary(gym.Env):
             current_position + normalized_direction * step_size
         )  # Calculate the next step
         return next_step
+
+    #######################################################################
+
+    def _flockingStep(self):
+         #Set flocking condition
+        self._flocking_condition = False
+
+        all_drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        all_cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
+
+        cattle_states = np.array([
+            np.hstack((all_cattle_states[i][0:2], all_cattle_states[i][3:5]))
+            for i in range(self.NUM_CATTLE)
+        ])
+
+        drone_states = np.array([
+            np.hstack((all_drone_states[j][0:2], all_drone_states[j][10:12]))
+            for j in range(self.NUM_DRONES)
+        ])
+
+        #Calculate Control Influences
+        local_clustering = MathematicalFlock._local_clustering(self, cattle_states, drone_states, k=0.5) #Keeps herd members grouped locally
+        global_clustering = MathematicalFlock._global_clustering(self, cattle_states, drone_states) #Keeps herd together on a larger scale
+        flocking = MathematicalFlock._flocking(self, cattle_states, drone_states) #aligns herd velocoites (cohesion alignment rules)
+        remain_in_bound_u = MathematicalFlock._calc_remain_in_boundary_control(self, cattle_states, self._boundary, k=5.0) #pushes agents back inside simulation limits
+
+        #Calculate herd density
+        herd_density = MathematicalFlock._herd_density(herd_states=cattle_states,shepherd_states=drone_states)
+
+        #Combine controls into acceleration
+        qdot = (1 - self._flocking_condition) * local_clustering + \
+                flocking + self._flocking_condition * global_clustering + \
+                (1 - self._flocking_condition) * remain_in_bound_u
+        
+        #Update Velocities and positions
+        cattle_states[:, 2:4] += qdot * self._dt_sqr
+        pdot = cattle_states[:, 2:4]
+        cattle_states[:, :2] += pdot * self._dt
+
+        #Apply velocity limits and update herds
+        for idx, herd in enumerate(self._herds):
+            # Scale velocity
+            if np.linalg.norm(cattle_states[idx, 2:4]) > herd._max_v:
+                cattle_states[idx, 2:4] = herd._max_v * \
+                    utils.unit_vector(cattle_states[idx, 2:4])
+
+            herd.velocity = cattle_states[idx, 2:4]
+            herd.pose = cattle_states[idx, :2]
+            herd._rotate_image(herd.velocity)
+
+            herd._force = 2 * herd_density[idx, :]
+            herd._plot_force = True
+
+        #Tack overall state
+        herd_mean = np.sum(cattle_states[:, :2], axis=0) / cattle_states.shape[0]
+        self._states = np.vstack((herd_mean, drone_states[:, :2]))
+        # self._states = herd_states[:, :2]

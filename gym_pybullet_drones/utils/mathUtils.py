@@ -71,10 +71,3 @@ class MathUtils():
             return np.zeros(2)
         else:
             return np.array(v) / n
-        
-    @staticmethod
-    def InteractionForce(xi, xj, a, c, d):
-        exponent = -((abs(xi-xj) - d)/ c)
-        numerator = a * (1- np.exp(exponent))
-        denominator = 1 + abs(xi-xj)
-        return numerator/denominator * xi-xj
