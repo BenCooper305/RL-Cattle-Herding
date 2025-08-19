@@ -523,13 +523,6 @@ class BaseAviary(gym.Env):
                                     physicsClientId=self.CLIENT
                                     ) for i in range(self.NUM_DRONES)])
 
-        # self.CATTLE_IDS = np.array([p.loadURDF("cube_no_rotation.urdf",
-        #                             [1, 1, 0.1],
-        #                             p.getQuaternionFromEuler([0, 0, 0]),
-        #                             globalScaling=0.2,
-        #                             physicsClientId=self.CLIENT
-        #                             ) for i in range(self.NUM_CATTLE)])
-
         # Minimum distance from origin
         min_radius = 1.0  
         # Maximum distance you want cattle to spawn
@@ -603,6 +596,7 @@ class BaseAviary(gym.Env):
             self.cattle_pos[j], self.cattle_quat[j] = p.getBasePositionAndOrientation(self.CATTLE_IDS[j], physicsClientId=self.CLIENT)
             self.cattle_rpy[j] = p.getEulerFromQuaternion(self.cattle_quat[j])
             self.cattle_vel[j], self.cattle_ang_v[j] = p.getBaseVelocity(self.CATTLE_IDS[j], physicsClientId=self.CLIENT)
+
             
     ################################################################################
 
@@ -640,8 +634,12 @@ class BaseAviary(gym.Env):
             to understand its format.
 
         """
-        state = np.hstack([self.pos[nth_drone, :], self.quat[nth_drone, :], self.rpy[nth_drone, :],
-                           self.vel[nth_drone, :], self.ang_v[nth_drone, :], self.last_clipped_action[nth_drone, :]])
+        state = np.hstack([self.pos[nth_drone, :], 
+                           self.quat[nth_drone, :], 
+                           self.rpy[nth_drone, :],
+                           self.vel[nth_drone, :], 
+                           self.ang_v[nth_drone, :], 
+                           self.last_clipped_action[nth_drone, :]])
         return state.reshape(20,)
 
     ################################################################################

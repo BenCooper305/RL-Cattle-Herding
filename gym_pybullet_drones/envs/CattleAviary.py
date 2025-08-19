@@ -127,32 +127,42 @@ class CattleAviary(BaseRLAviary):
     
         centroid = self.HerdCentroid()
         states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
-
         pos = states[:, 0:3]
-        vel = states[:, 7:10]  # if useful
-        dists = np.linalg.norm(pos - centroid, axis=1)            # >0 if getting closer
-        proximity = 1.0 / (1.0 + dists)                                # still keep a dense term
+        vel = states[:, 10:13]  # actual velocity vector
+
+        dists = np.linalg.norm(pos - centroid, axis=1)
+        dir_to_centroid = centroid - pos
+        dir_unit = np.where(dists[:, None] > 0, dir_to_centroid / dists[:, None], 0.0)
+
+        # Reward for moving toward centroid
+        approach_reward = np.mean(np.sum(vel * dir_unit, axis=1))
+
+        # Dense proximity reward
+        proximity_reward = np.mean(1.0 / (1.0 + dists))
+
+        # Control penalty
         control_pen = 0.0
         if hasattr(self, "last_action"):
-            # last_action should be shape (num_drones, action_dim) in [-1,1]
             control_pen = np.mean(np.sum(self.last_action**2, axis=1))
 
-        # scale to per-drone and then average (this stabilizes N-drones)
         r = (
-        + self.REWARD_WEIGHTS["proximity"] * np.mean(proximity)
-        + self.REWARD_WEIGHTS["control"]   * control_pen
+            self.REWARD_WEIGHTS.get("proximity", 1.0) * proximity_reward
+            + self.REWARD_WEIGHTS.get("approach", 1.0) * approach_reward
+            - self.REWARD_WEIGHTS.get("control", 1.0) * control_pen
         )
 
-        # store for next step
-        self._last_dist_to_centroid = dists
-        # (optional) expose for TB/debugging
+        # Store for next step
+        self._last_dist_to_centroid = dists.copy()
+
+        # Debug info
         self.last_reward_info = {
-            "proximity": float(np.mean(proximity)),
+            "proximity": float(proximity_reward),
+            "approach": float(approach_reward),
             "control_pen": float(control_pen),
             "mean_dist": float(np.mean(dists)),
         }
-        return float(r)
 
+        return float(r)
 
     ################################################################################
     
@@ -187,26 +197,26 @@ class CattleAviary(BaseRLAviary):
         """
         states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
 
-        for i in range(self.NUM_DRONES):
-            #--- Tilt check (roll/pitch) ---
-            roll = states[i][7]
-            pitch = states[i][8]
-            if abs(roll) > 0.8 or abs(pitch) > 0.8:
-                #print("TRUNCATED!!!!!!!!! PITCH")
-                return True  # too tilted
+        # for i in range(self.NUM_DRONES):
+        #     #--- Tilt check (roll/pitch) ---
+        #     roll = states[i][7]
+        #     pitch = states[i][8]
+        #     if abs(roll) > 0.8 or abs(pitch) > 0.8:
+        #         #print("TRUNCATED!!!!!!!!! PITCH")
+        #         return True  # too tilted
 
-            #--- Altitude check ---
-            z = states[i][2]
-            if abs(z - self.DRONE_TARGET_ALTITUDE) > 0.1:
-                #print("TRUNCATED!!!!!!!!! ALT")
-                return True  # too far from target altitude
+        #     #--- Altitude check ---
+        #     z = states[i][2]
+        #     if abs(z - self.DRONE_TARGET_ALTITUDE) > 0.25:
+        #         #print("TRUNCATED!!!!!!!!! ALT")
+        #         return True  # too far from target altitude
 
-            # --- Velocity check ---
-            vel = states[i][10:13]
-            max_vel = 8.0  # tune based on your simulation
-            if np.linalg.norm(vel) > max_vel:
-                #print("TRUNCATED!!!!!!!!! VEL")
-                return True  # too fast
+        #     # --- Velocity check ---
+        #     vel = states[i][10:13]
+        #     max_vel = 8.0  # tune based on your simulation
+        #     if np.linalg.norm(vel) > max_vel:
+        #         #print("TRUNCATED!!!!!!!!! VEL")
+        #         return True  # too fast
 
         # --- Episode timeout ---
         if self.step_counter / self.PYB_FREQ > self.EPISODE_LEN_SEC:

@@ -94,7 +94,7 @@ class BaseRLAviary(BaseAviary):
                          )
         #### Set a limit on the maximum target speed ###############
         if act == ActionType.VEL:
-            self.SPEED_LIMIT = 0.03 * self.MAX_SPEED_KMH * (1000/3600)
+            self.SPEED_LIMIT = 0.5 * self.MAX_SPEED_KMH * (1000/3600)
 
     ################################################################################
 
@@ -124,7 +124,7 @@ class BaseRLAviary(BaseAviary):
         #
         return spaces.Box(low=act_lower_bound, high=act_upper_bound, dtype=np.float32)
 
-    ################################################################################
+    ###############################################################################
 
     def _preprocessAction(self,
                           action
@@ -206,6 +206,94 @@ class BaseRLAviary(BaseAviary):
                 print("[ERROR] in BaseRLAviary._preprocessAction()")
                 exit()
         return rpm
+    
+    # def _preprocessAction(self, action):
+    #     """Pre-processes the action passed to `.step()` into motors' RPMs.
+
+    #     Parameters
+    #     ----------
+    #     action : ndarray
+    #         The input action for each drone, to be translated into RPMs.
+
+    #     Returns
+    #     -------
+    #     ndarray
+    #         (NUM_DRONES, 4)-shaped array of ints containing clipped RPMs
+    #         commanded to the 4 motors of each drone.
+    #     """
+    #     self.action_buffer.append(action)
+    #     rpm = np.zeros((self.NUM_DRONES, 4))
+
+    #     for k in range(action.shape[0]):
+    #         target = action[k, :]
+
+    #         if self.ACT_TYPE == ActionType.RPM:
+    #             rpm[k, :] = np.array(self.HOVER_RPM * (1 + 0.05 * target))
+
+    #         elif self.ACT_TYPE == ActionType.PID:
+    #             state = self._getDroneStateVector(k)
+    #             next_pos = self._calculateNextStep(
+    #                 current_position=state[0:3],
+    #                 destination=target,
+    #                 step_size=1,
+    #             )
+    #             rpm_k, _, _ = self.ctrl[k].computeControl(
+    #                 control_timestep=self.CTRL_TIMESTEP,
+    #                 cur_pos=state[0:3],
+    #                 cur_quat=state[3:7],
+    #                 cur_vel=state[10:13],
+    #                 cur_ang_vel=state[13:16],
+    #                 target_pos=next_pos
+    #             )
+    #             rpm[k, :] = rpm_k
+
+    #         elif self.ACT_TYPE == ActionType.VEL:
+    #             state = self._getDroneStateVector(k)
+
+    #             # Convert PPO action to velocity
+    #             v_action = target[0:3]
+    #             norm = np.linalg.norm(v_action)
+    #             if norm > 1e-6:
+    #                 v_unit_vector = v_action / norm
+    #             else:
+    #                 v_unit_vector = np.zeros(3)
+
+    #             target_velocity = self.SPEED_LIMIT * np.abs(target[3]) * v_unit_vector
+    #             target_position = state[0:3] + target_velocity * self.CTRL_TIMESTEP
+
+    #             temp, _, _ = self.ctrl[k].computeControl(
+    #                 control_timestep=self.CTRL_TIMESTEP,
+    #                 cur_pos=state[0:3],
+    #                 cur_quat=state[3:7],
+    #                 cur_vel=state[10:13],
+    #                 cur_ang_vel=state[13:16],
+    #                 target_pos=target_position,
+    #                 target_rpy=np.array([0, 0, state[9]]),
+    #                 target_vel=target_velocity
+    #             )
+    #             rpm[k, :] = temp
+
+    #         elif self.ACT_TYPE == ActionType.ONE_D_RPM:
+    #             rpm[k, :] = np.repeat(self.HOVER_RPM * (1 + 0.05 * target), 4)
+
+    #         elif self.ACT_TYPE == ActionType.ONE_D_PID:
+    #             state = self._getDroneStateVector(k)
+    #             res, _, _ = self.ctrl[k].computeControl(
+    #                 control_timestep=self.CTRL_TIMESTEP,
+    #                 cur_pos=state[0:3],
+    #                 cur_quat=state[3:7],
+    #                 cur_vel=state[10:13],
+    #                 cur_ang_vel=state[13:16],
+    #                 target_pos=state[0:3] + 0.1 * np.array([0, 0, target[0]])
+    #             )
+    #             rpm[k, :] = res
+
+    #         else:
+    #             print("[ERROR] in BaseRLAviary._preprocessAction()")
+    #             exit()
+
+    #     return rpm
+
 
     ################################################################################
 
@@ -232,12 +320,12 @@ class BaseRLAviary(BaseAviary):
             ### Distances are always >= 0
 
             # Absolute positions of other drones (exclude self)
-            drone_abs_lo = np.zeros((self.NUM_DRONES, (self.NUM_DRONES-1) * 3))
-            drone_abs_hi = np.full((self.NUM_DRONES, (self.NUM_DRONES-1) * 3), hi)
+            drone_abs_lo = np.zeros((self.NUM_DRONES, (self.NUM_DRONES-1) * 2))
+            drone_abs_hi = np.full((self.NUM_DRONES, (self.NUM_DRONES-1) * 2), hi)
 
             # Relative positions of other drones (exclude self)
-            drone_rel_lo = np.zeros((self.NUM_DRONES, (self.NUM_DRONES-1) * 3))
-            drone_rel_hi = np.full((self.NUM_DRONES, (self.NUM_DRONES-1) * 3), hi)
+            drone_rel_lo = np.zeros((self.NUM_DRONES, (self.NUM_DRONES-1) * 2))
+            drone_rel_hi = np.full((self.NUM_DRONES, (self.NUM_DRONES-1) * 2), hi)
 
             # Combine absolute + relative
             obs_lower_bound = np.hstack([obs_lower_bound, drone_abs_lo, drone_rel_lo])
@@ -246,12 +334,12 @@ class BaseRLAviary(BaseAviary):
             ############################################################
             #### Add drone–cattle distances (NUM_CATTLE per drone)
             # Absolute cow positions
-            cattle_abs_lo = -np.inf * np.ones((self.NUM_DRONES, self.NUM_CATTLE * 3))
-            cattle_abs_hi = +np.inf * np.ones((self.NUM_DRONES, self.NUM_CATTLE * 3))
+            cattle_abs_lo = -np.inf * np.ones((self.NUM_DRONES, self.NUM_CATTLE * 2))
+            cattle_abs_hi = +np.inf * np.ones((self.NUM_DRONES, self.NUM_CATTLE * 2))
 
             # Relative cow positions (existing)
-            cattle_rel_lo = np.zeros((self.NUM_DRONES, self.NUM_CATTLE * 3))
-            cattle_rel_hi = np.full((self.NUM_DRONES, self.NUM_CATTLE * 3), hi)
+            cattle_rel_lo = np.zeros((self.NUM_DRONES, self.NUM_CATTLE * 2))
+            cattle_rel_hi = np.full((self.NUM_DRONES, self.NUM_CATTLE * 2), hi)
 
             # Combine absolute + relative
             obs_lower_bound = np.hstack([obs_lower_bound, cattle_abs_lo, cattle_rel_lo])
@@ -267,9 +355,6 @@ class BaseRLAviary(BaseAviary):
                 elif self.ACT_TYPE==ActionType.PID:
                     obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo,act_lo,act_lo] for i in range(self.NUM_DRONES)])])
                     obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi,act_hi,act_hi] for i in range(self.NUM_DRONES)])])
-                elif self.ACT_TYPE in [ActionType.ONE_D_RPM, ActionType.ONE_D_PID]:
-                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo] for i in range(self.NUM_DRONES)])])
-                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi] for i in range(self.NUM_DRONES)])])
 
             ############################################################  
             return spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32)
@@ -303,25 +388,25 @@ class BaseRLAviary(BaseAviary):
             obs_vec = self._getDroneStateVector(i)
             drone_pos = obs_vec[0:3]
             obs_i = list(np.hstack([
-                drone_pos,            # x, y, z
-                obs_vec[7:10],        # velocity
-                obs_vec[10:13],       # angular velocity
-                obs_vec[13:16]        # orientation / rotation
+                drone_pos,            # position (x, y, z)
+                obs_vec[7:10],        # roll, pitch, yaw (RPY)
+                obs_vec[10:13],       # linear velocity (vx, vy, vz)
+                obs_vec[13:16]        # angular velocity (wx, wy, wz)
             ]))
 
             # #### Add drone to drone relative positions #######################
             for j in range(N):
                 if i == j:
                     continue
-                other_drone_pos = self._getDroneStateVector(j)[0:3]
-                rel_pos = other_drone_pos - drone_pos
+                other_drone_pos = self._getDroneStateVector(j)[0:2] #xy only
+                rel_pos = other_drone_pos - drone_pos[0:2] #xy pos only
                 obs_i.extend(other_drone_pos)
                 obs_i.extend(rel_pos)
 
             #### Add absolute and relative cow positions #######################
             for j in range(M):
-                cow_pos = self._getCowStateVector(j)[0:3]
-                rel_pos = cow_pos - drone_pos
+                cow_pos = self._getCowStateVector(j)[0:2] #xy only
+                rel_pos = cow_pos - drone_pos[0:2] #xy pos only
                 obs_i.extend(cow_pos)   # absolute position
                 obs_i.extend(rel_pos)   # relative to drone
 

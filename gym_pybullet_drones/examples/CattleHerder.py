@@ -36,12 +36,12 @@ TARGET_REWARD = 8800
 LOAD_FILE = 'no' #'save-08.18.2025_19.11.25/best_model.zip'
 
 DEFAULT_OBS = ObservationType('cokin') #collabrative kinematicsa
-DEFAULT_ACT = ActionType('rpm') # 'rpm' or 'pid' or 'vel' or 'one_d_rpm' or 'one_d_pid'
+DEFAULT_ACT = ActionType('vel') # 'rpm' or 'pid' or 'vel' or 'one_d_rpm' or 'one_d_pid'
 DEFAULT_DRONES = 4
 DEFAULT_CATTLE = 3
 
-MAX_TIMESTEPS = 10000
-EVALUATION_FREQUENCY = 1000
+MAX_TIMESTEPS = 300000
+EVALUATION_FREQUENCY = 2048
 
 EVALUTE_ONLY = False
 
@@ -83,7 +83,7 @@ def run(
         model = PPO('MlpPolicy', 
                     train_env,
                     learning_rate=1e-4,
-                    n_steps=4096,
+                    n_steps=2048,
                     batch_size=1024,
                     n_epochs=10,
                     gamma=0.99,
