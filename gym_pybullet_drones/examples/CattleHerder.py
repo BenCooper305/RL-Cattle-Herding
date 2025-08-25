@@ -6,6 +6,8 @@ In a terminal, run as:
 
     $ conda activate drones
     $ python CattleHerder.py
+
+    tensorboard --logdir /home/ben/ros_ws/src/RL-Cattle-Herding/gym_pybullet_drones/examples/models/model-v3-1
 """
 import os
 import time
@@ -33,12 +35,12 @@ DEFAULT_RECORD_VIDEO = False
 DEFAULT_OUTPUT_FOLDER = 'models'
 DEFAULT_COLAB = False
 TARGET_REWARD = 8800
-LOAD_FILE = 'no' #'save-08.18.2025_19.11.25/best_model.zip'
+LOAD_FILE = 'no' #'save-08.19.2025_15.25.22/best_model.zip'
 
 DEFAULT_OBS = ObservationType('cokin') #collabrative kinematicsa
 DEFAULT_ACT = ActionType('vel') # 'rpm' or 'pid' or 'vel' or 'one_d_rpm' or 'one_d_pid'
 DEFAULT_DRONES = 4
-DEFAULT_CATTLE = 3
+DEFAULT_CATTLE = 6
 
 MAX_TIMESTEPS = 300000
 EVALUATION_FREQUENCY = 2048
@@ -54,7 +56,8 @@ def run(
         record_video=DEFAULT_RECORD_VIDEO, 
         local=True):
 
-    filename = os.path.join(output_folder, 'save-'+datetime.now().strftime("%m.%d.%Y_%H.%M.%S"))
+    #filename = os.path.join(output_folder, 'save-'+datetime.now().strftime("%m.%d.%Y_%H.%M.%S"))
+    filename = os.path.join(output_folder, 'model-v3-1')
     if not os.path.exists(filename):
         os.makedirs(filename+'/')
 
@@ -62,16 +65,9 @@ def run(
 
     # Training environment
     train_env = make_vec_env(CattleAviary, env_kwargs=env_kwargs, n_envs=1, seed=0)
-    train_env = VecNormalize(train_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
 
     # Evaluation environment
     eval_env = DummyVecEnv([lambda: Monitor(CattleAviary(**env_kwargs))])
-    eval_env = VecNormalize(eval_env, norm_obs=True, norm_reward=True)
-
-
-    #### Check the environment's spaces ########################
-    print('[INFO] Action space:', train_env.action_space)
-    print('[INFO] Observation space:', train_env.observation_space)
 
     #### Create the model #######################################
     loadfile = 'models/'+LOAD_FILE
@@ -82,17 +78,21 @@ def run(
     else:
         model = PPO('MlpPolicy', 
                     train_env,
-                    learning_rate=1e-4,
+                    learning_rate=3e-5,
                     n_steps=2048,
-                    batch_size=1024,
+                    batch_size=64,
                     n_epochs=10,
                     gamma=0.99,
                     gae_lambda=0.95,
                     clip_range=0.1,
-                    ent_coef=0.01,
-                    vf_coef=0.5,
+                    ent_coef=0.1,
+                    vf_coef=0.7,
                     max_grad_norm=0.5,
                     tensorboard_log=filename+'/tb/',
+                    policy_kwargs=dict(
+                        log_std_init=-1.0,     # start with lower action variance
+                        ortho_init=False,
+                        net_arch=[dict(pi=[128, 128], vf=[128, 128])],),
                     verbose=1)
         print("[LOG] Created New Model")
 
@@ -113,7 +113,6 @@ def run(
     model.learn(total_timesteps=int(MAX_TIMESTEPS), callback=eval_callback, log_interval=100)
 
     #### Save the model ########################################
-    train_env.save("vecnormalize_stats.pkl")
     model.save(filename+'/final_model.zip')
     print(filename)
 

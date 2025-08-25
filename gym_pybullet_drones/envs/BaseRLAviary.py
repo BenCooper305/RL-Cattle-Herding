@@ -94,7 +94,7 @@ class BaseRLAviary(BaseAviary):
                          )
         #### Set a limit on the maximum target speed ###############
         if act == ActionType.VEL:
-            self.SPEED_LIMIT = 0.5 * self.MAX_SPEED_KMH * (1000/3600)
+            self.SPEED_LIMIT = 0.3 * self.MAX_SPEED_KMH * (1000/3600)
 
     ################################################################################
 
@@ -309,11 +309,11 @@ class BaseRLAviary(BaseAviary):
         if self.OBS_TYPE == ObservationType.COKIN:
             ############################################################
             #### OBS SPACE OF SIZE 12
-            #### Observation vector ### X        Y        Z       Q1   Q2   Q3   Q4   R       P       Y       VX       VY       VZ       WX       WY       WZ
+            #### Observation vector ### X        Y        Z       Q1   Q2   Q3   Q4   R       P       Y       VX       VY       VZ       WX       WY       WZ delta_alt
             lo = -np.inf
             hi = np.inf
-            obs_lower_bound = np.array([[lo,lo,0, lo,lo,lo,lo,lo,lo,lo,lo,lo] for i in range(self.NUM_DRONES)])
-            obs_upper_bound = np.array([[hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi] for i in range(self.NUM_DRONES)])
+            obs_lower_bound = np.array([[lo,lo,0, lo,lo,lo,lo,lo,lo,lo,lo,lo, 0] for i in range(self.NUM_DRONES)])
+            obs_upper_bound = np.array([[hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi, hi] for i in range(self.NUM_DRONES)])
 
             ###########################################################
             ### Add drone–drone distances (NUM_DRONES - 1 per drone)
@@ -387,11 +387,13 @@ class BaseRLAviary(BaseAviary):
             #### Add drone state #######################
             obs_vec = self._getDroneStateVector(i)
             drone_pos = obs_vec[0:3]
+            delta_alt = drone_pos[2] - self.DRONE_TARGET_ALTITUDE
             obs_i = list(np.hstack([
                 drone_pos,            # position (x, y, z)
                 obs_vec[7:10],        # roll, pitch, yaw (RPY)
                 obs_vec[10:13],       # linear velocity (vx, vy, vz)
-                obs_vec[13:16]        # angular velocity (wx, wy, wz)
+                obs_vec[13:16],        # angular velocity (wx, wy, wz)
+                delta_alt               #distance from altitude
             ]))
 
             # #### Add drone to drone relative positions #######################
