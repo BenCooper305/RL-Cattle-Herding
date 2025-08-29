@@ -1244,10 +1244,10 @@ class BaseAviary(gym.Env):
         ])
 
         #Calculate Control Influences
-        local_clustering = MathematicalFlock._local_clustering(self, cattle_states, drone_states, k=0.5) #Keeps herd members grouped locally
-        global_clustering = MathematicalFlock._global_clustering(self, cattle_states, drone_states) #Keeps herd together on a larger scale
-        flocking = MathematicalFlock._flocking(self, cattle_states, drone_states) #aligns herd velocoites (cohesion alignment rules)
-        remain_in_bound_u = MathematicalFlock._calc_remain_in_boundary_control(self, cattle_states, self._boundary, k=5.0) #pushes agents back inside simulation limits
+        local_clustering = MathematicalFlock._local_clustering(self, cattle_states, drone_states, k=0.5)                    #Keeps herd members grouped locally
+        global_clustering = MathematicalFlock._global_clustering(self, cattle_states, drone_states)                         #Keeps herd together on a larger scale
+        flocking = MathematicalFlock._flocking(self, cattle_states, drone_states)                                           #aligns herd velocoites (cohesion alignment rules)
+        remain_in_bound_u = MathematicalFlock._calc_remain_in_boundary_control(self, cattle_states, self._boundary, k=5.0)  #pushes agents back inside simulation limits
 
         #Calculate herd density
         herd_density = MathematicalFlock._herd_density(herd_states=cattle_states,shepherd_states=drone_states)

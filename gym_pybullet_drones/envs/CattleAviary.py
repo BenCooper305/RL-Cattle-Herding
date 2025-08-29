@@ -77,34 +77,44 @@ class CattleAviary(BaseRLAviary):
         self.MAX_DIST = 10
         self.prev_dists = None
         self.MAX_ALT_ERROR = self.DRONE_TARGET_ALTITUDE * 0.4
-        self.REWARD_WEIGHTS = dict(progress=1.0, proximity=0.5, control=-0.01)
+        self.REWARD_WEIGHTS = dict(proximity=0.5, approach=1, altitude=0.5)
     ################################################################################
     
 
     def _computeReward(self):
         """Reward: move toward centroid, stay near, avoid collisions."""
 
-        # --- Drone and herd info ---
+        #Drone and herd info
         centroid = self.HerdCentroid()
         states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
         pos = states[:, 0:3]
         vel = states[:, 10:13]
         dists = np.linalg.norm(pos - centroid, axis=1)
 
-        # --- Directional reward (dot product of vel and direction) ---
+        #Directional reward (dot product of vel and direction)
         dir_to_centroid = centroid - pos
         dir_unit = np.where(dists[:, None] > 0, dir_to_centroid / dists[:, None], 0.0)
         approach_reward = np.mean(np.sum(vel * dir_unit, axis=1)) / (self.MAX_VEL + 1e-6)
 
-        # --- Progress-based proximity reward ---
+        #Progress-based proximity reward
         if self.prev_dists is None:
             self.prev_dists = dists
         dist_change = self.prev_dists - dists   # positive if closer, negative if further
         progress_reward = np.mean(dist_change / (self.MAX_DIST + 1e-6))
         self.prev_dists = dists
 
-        # --- Combine with weights ---
-        r = (1.0 * approach_reward) + (0.5 * progress_reward)
+        #Altitude control reward
+        target_alt = self.DRONE_TARGET_ALTITUDE
+        alt_error = np.abs(pos[:, 2] - target_alt)
+        alt_penalty = np.mean(np.clip(alt_error / (self.MAX_ALT_ERROR + 1e-6), 0.0, 1.0)) * -1
+
+
+        #Combine with weights
+        r = (
+            approach_reward * self.REWARD_WEIGHTS["approach"]
+            + progress_reward * self.REWARD_WEIGHTS["proximity"]
+            + alt_penalty * self.REWARD_WEIGHTS["altitude"]
+            )
 
         return float(r)
 
@@ -114,7 +124,7 @@ class CattleAviary(BaseRLAviary):
         """Computes the current done value.
 
         Returns
-        -------
+        ------- 
         bool
             Whether the current episode is done.
 

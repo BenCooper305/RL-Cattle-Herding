@@ -21,6 +21,19 @@ pip3 install -e . # if needed, `sudo apt install build-essential` to install `gc
 
 ```
 
+## Development /Working Files
+envs -> BaseAviary - handles bulk of simulation 
+        BaseRLAvairy - handles action and opbservation spaces
+        CattleAviary - computes reward, termination, truncated conditions
+        models - saved trained models
+examples -> CattleHerder - main file for running cattle herding
+
+utils -> flockUtils - 
+         mathUtils -
+         utils
+
+
+
 ## Cattle Herding Usage
 
 ```sh

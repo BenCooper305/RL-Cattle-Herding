@@ -34,18 +34,18 @@ DEFAULT_GUI = True
 DEFAULT_RECORD_VIDEO = False
 DEFAULT_OUTPUT_FOLDER = 'models'
 DEFAULT_COLAB = False
-TARGET_REWARD = 8800
-LOAD_FILE = 'no' #'save-08.19.2025_15.25.22/best_model.zip'
+TARGET_REWARD = 8800 #reward to reach to end training
+LOAD_FILE = 'no' #'model-v3-1' #'save-08.19.2025_15.25.22/best_model.zip'
 
 DEFAULT_OBS = ObservationType('cokin') #collabrative kinematicsa
 DEFAULT_ACT = ActionType('vel') # 'rpm' or 'pid' or 'vel' or 'one_d_rpm' or 'one_d_pid'
-DEFAULT_DRONES = 4
-DEFAULT_CATTLE = 6
+DEFAULT_DRONES = 4 #number of herding drones
+DEFAULT_CATTLE = 6 #number of cattle to herd
 
-MAX_TIMESTEPS = 300000
-EVALUATION_FREQUENCY = 2048
+MAX_TIMESTEPS = 300000  #max number of time steps before learning stops
+EVALUATION_FREQUENCY = 2048 #number of steps to collect before updating policy
 
-EVALUTE_ONLY = False
+EVALUTE_ONLY = False #not used - skips training and replays a saved model
 
 def run(
         target_reward = TARGET_REWARD,
@@ -57,16 +57,13 @@ def run(
         local=True):
 
     #filename = os.path.join(output_folder, 'save-'+datetime.now().strftime("%m.%d.%Y_%H.%M.%S"))
-    filename = os.path.join(output_folder, 'model-v3-1')
+    filename = os.path.join(output_folder, 'model-v3-2')
     if not os.path.exists(filename):
         os.makedirs(filename+'/')
 
+    #create environments
     env_kwargs = dict(num_drones=DEFAULT_DRONES, num_cattel=DEFAULT_CATTLE, obs=DEFAULT_OBS, act=DEFAULT_ACT)
-
-    # Training environment
     train_env = make_vec_env(CattleAviary, env_kwargs=env_kwargs, n_envs=1, seed=0)
-
-    # Evaluation environment
     eval_env = DummyVecEnv([lambda: Monitor(CattleAviary(**env_kwargs))])
 
     #### Create the model #######################################
