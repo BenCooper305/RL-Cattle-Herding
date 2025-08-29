@@ -103,17 +103,10 @@ class CattleAviary(BaseRLAviary):
         progress_reward = np.mean(dist_change / (self.MAX_DIST + 1e-6))
         self.prev_dists = dists
 
-        #Altitude control reward
-        target_alt = self.DRONE_TARGET_ALTITUDE
-        alt_error = np.abs(pos[:, 2] - target_alt)
-        alt_penalty = np.mean(np.clip(alt_error / (self.MAX_ALT_ERROR + 1e-6), 0.0, 1.0)) * -1
-
-
         #Combine with weights
         r = (
             approach_reward * self.REWARD_WEIGHTS["approach"]
             + progress_reward * self.REWARD_WEIGHTS["proximity"]
-            + alt_penalty * self.REWARD_WEIGHTS["altitude"]
             )
 
         return float(r)
@@ -148,23 +141,6 @@ class CattleAviary(BaseRLAviary):
             True if the episode should be truncated, False otherwise.
         """
         states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
-
-        for i in range(self.NUM_DRONES):
-            #--- Tilt check (roll/pitch) ---
-            roll = states[i][7]
-            pitch = states[i][8]
-            if abs(roll) > 0.6 or abs(pitch) > 0.6:
-                return True  # too tilted
-
-            #--- Altitude check ---
-            z = states[i][2]
-            if abs(z - self.DRONE_TARGET_ALTITUDE) > self.MAX_ALT_ERROR:
-                return True
-
-            # --- Velocity check ---
-            vel = states[i][10:13]
-            if np.linalg.norm(vel) > self.MAX_VEL :
-                return True  # too fast
 
         # --- Episode timeout ---
         if self.step_counter / self.PYB_FREQ > self.EPISODE_LEN_SEC:

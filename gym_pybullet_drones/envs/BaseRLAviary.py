@@ -185,7 +185,8 @@ class BaseRLAviary(BaseAviary):
                                                         cur_quat=state[3:7],
                                                         cur_vel=state[10:13],
                                                         cur_ang_vel=state[13:16],
-                                                        target_pos=state[0:3], # same as the current position
+                                                        #target_pos=state[0:3], # same as the current position  #MODIFIED FOR FIXED ALT
+                                                        target_pos = np.array([state[0], state[1], self.DRONE_TARGET_ALTITUDE]),
                                                         target_rpy=np.array([0,0,state[9]]), # keep current yaw
                                                         target_vel=self.SPEED_LIMIT * np.abs(target[3]) * v_unit_vector # target the desired velocity vector
                                                         )
@@ -206,93 +207,6 @@ class BaseRLAviary(BaseAviary):
                 print("[ERROR] in BaseRLAviary._preprocessAction()")
                 exit()
         return rpm
-    
-    # def _preprocessAction(self, action):
-    #     """Pre-processes the action passed to `.step()` into motors' RPMs.
-
-    #     Parameters
-    #     ----------
-    #     action : ndarray
-    #         The input action for each drone, to be translated into RPMs.
-
-    #     Returns
-    #     -------
-    #     ndarray
-    #         (NUM_DRONES, 4)-shaped array of ints containing clipped RPMs
-    #         commanded to the 4 motors of each drone.
-    #     """
-    #     self.action_buffer.append(action)
-    #     rpm = np.zeros((self.NUM_DRONES, 4))
-
-    #     for k in range(action.shape[0]):
-    #         target = action[k, :]
-
-    #         if self.ACT_TYPE == ActionType.RPM:
-    #             rpm[k, :] = np.array(self.HOVER_RPM * (1 + 0.05 * target))
-
-    #         elif self.ACT_TYPE == ActionType.PID:
-    #             state = self._getDroneStateVector(k)
-    #             next_pos = self._calculateNextStep(
-    #                 current_position=state[0:3],
-    #                 destination=target,
-    #                 step_size=1,
-    #             )
-    #             rpm_k, _, _ = self.ctrl[k].computeControl(
-    #                 control_timestep=self.CTRL_TIMESTEP,
-    #                 cur_pos=state[0:3],
-    #                 cur_quat=state[3:7],
-    #                 cur_vel=state[10:13],
-    #                 cur_ang_vel=state[13:16],
-    #                 target_pos=next_pos
-    #             )
-    #             rpm[k, :] = rpm_k
-
-    #         elif self.ACT_TYPE == ActionType.VEL:
-    #             state = self._getDroneStateVector(k)
-
-    #             # Convert PPO action to velocity
-    #             v_action = target[0:3]
-    #             norm = np.linalg.norm(v_action)
-    #             if norm > 1e-6:
-    #                 v_unit_vector = v_action / norm
-    #             else:
-    #                 v_unit_vector = np.zeros(3)
-
-    #             target_velocity = self.SPEED_LIMIT * np.abs(target[3]) * v_unit_vector
-    #             target_position = state[0:3] + target_velocity * self.CTRL_TIMESTEP
-
-    #             temp, _, _ = self.ctrl[k].computeControl(
-    #                 control_timestep=self.CTRL_TIMESTEP,
-    #                 cur_pos=state[0:3],
-    #                 cur_quat=state[3:7],
-    #                 cur_vel=state[10:13],
-    #                 cur_ang_vel=state[13:16],
-    #                 target_pos=target_position,
-    #                 target_rpy=np.array([0, 0, state[9]]),
-    #                 target_vel=target_velocity
-    #             )
-    #             rpm[k, :] = temp
-
-    #         elif self.ACT_TYPE == ActionType.ONE_D_RPM:
-    #             rpm[k, :] = np.repeat(self.HOVER_RPM * (1 + 0.05 * target), 4)
-
-    #         elif self.ACT_TYPE == ActionType.ONE_D_PID:
-    #             state = self._getDroneStateVector(k)
-    #             res, _, _ = self.ctrl[k].computeControl(
-    #                 control_timestep=self.CTRL_TIMESTEP,
-    #                 cur_pos=state[0:3],
-    #                 cur_quat=state[3:7],
-    #                 cur_vel=state[10:13],
-    #                 cur_ang_vel=state[13:16],
-    #                 target_pos=state[0:3] + 0.1 * np.array([0, 0, target[0]])
-    #             )
-    #             rpm[k, :] = res
-
-    #         else:
-    #             print("[ERROR] in BaseRLAviary._preprocessAction()")
-    #             exit()
-
-    #     return rpm
 
 
     ################################################################################
