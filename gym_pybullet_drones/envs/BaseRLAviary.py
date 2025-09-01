@@ -176,21 +176,42 @@ class BaseRLAviary(BaseAviary):
                 rpm[k,:] = rpm_k
             elif self.ACT_TYPE == ActionType.VEL:
                 state = self._getDroneStateVector(k)
-                if np.linalg.norm(target[0:3]) != 0:
-                    v_unit_vector = target[0:3] / np.linalg.norm(target[0:3])
+                # Normalize horizontal component of velocity target
+                horiz_vel = target[0:2]
+                norm = np.linalg.norm(horiz_vel)
+                if norm != 0:
+                    v_unit_xy = horiz_vel / norm
                 else:
-                    v_unit_vector = np.zeros(3)
-                temp, _, _ = self.ctrl[k].computeControl(control_timestep=self.CTRL_TIMESTEP,
-                                                        cur_pos=state[0:3],
-                                                        cur_quat=state[3:7],
-                                                        cur_vel=state[10:13],
-                                                        cur_ang_vel=state[13:16],
-                                                        #target_pos=state[0:3], # same as the current position  #MODIFIED FOR FIXED ALT
-                                                        target_pos = np.array([state[0], state[1], self.DRONE_TARGET_ALTITUDE]),
-                                                        target_rpy=np.array([0,0,state[9]]), # keep current yaw
-                                                        target_vel=self.SPEED_LIMIT * np.abs(target[3]) * v_unit_vector # target the desired velocity vector
-                                                        )
-                rpm[k,:] = temp
+                    v_unit_xy = np.zeros(2)
+
+                # Construct full 3D target velocity, zero vertical component since altitude is fixed
+                target_vel = np.array([
+                    v_unit_xy[0],
+                    v_unit_xy[1],
+                    0.0
+                ]) * (self.SPEED_LIMIT * abs(target[3]))
+
+                # Define fixed target position: current x, y plus desired altitude
+                target_pos = np.array([
+                    state[0],
+                    state[1],
+                    self.DRONE_TARGET_ALTITUDE
+                ])
+
+                # Keep current yaw by using current yaw angle (state[9] assumed to be yaw)
+                target_rpy = np.array([0.0, 0.0, state[9]])
+
+                temp, _, _ = self.ctrl[k].computeControl(
+                    control_timestep=self.CTRL_TIMESTEP,
+                    cur_pos=state[0:3],
+                    cur_quat=state[3:7],
+                    cur_vel=state[10:13],
+                    cur_ang_vel=state[13:16],
+                    target_pos=target_pos,
+                    target_rpy=target_rpy,
+                    target_vel=target_vel
+                )
+                rpm[k, :] = temp
             elif self.ACT_TYPE == ActionType.ONE_D_RPM:
                 rpm[k,:] = np.repeat(self.HOVER_RPM * (1+0.05*target), 4)
             elif self.ACT_TYPE == ActionType.ONE_D_PID:

@@ -17,7 +17,7 @@ from gym_pybullet_drones.utils.flockUtils import MathematicalFlock
 import gym_pybullet_drones.utils.utils as utils
 
 
-class BaseAviary(gym.Env):
+class BaseAviary(gym.Env, MathematicalFlock):
     """Base class for "drone aviary" Gym environments."""
 
     # metadata = {'render.modes': ['human']}
@@ -41,6 +41,13 @@ class BaseAviary(gym.Env):
                  vision_attributes=False,
                  output_folder='results'
                  ):
+        
+
+        MathematicalFlock.__init__(self,
+                                   follow_cursor=True,
+                                   sensing_range=999,
+                                   danger_range=0.1,
+                                   initial_consensus=1)
         """Initialization of a generic aviary environment.
 
         Parameters
@@ -383,6 +390,8 @@ class BaseAviary(gym.Env):
             self.last_clipped_action = clipped_action
         #### Update and store the drones kinematic information #####
         self._updateAndStoreKinematicInformation()
+        #### Update the flocking ##############################
+        #self._flockingStep()
         #### Prepare the return values #############################
         obs = self._computeObs()
         reward = self._computeReward()
@@ -391,7 +400,6 @@ class BaseAviary(gym.Env):
         info = self._computeInfo()
         #### Advance the step counter ##############################
         self.step_counter = self.step_counter + (1 * self.PYB_STEPS_PER_CTRL)
-        #self._flockingStep()
         return obs, reward, terminated, truncated, info
     
     ################################################################################
@@ -563,6 +571,13 @@ class BaseAviary(gym.Env):
                                     physicsClientId=self.CLIENT
                                     ))
         
+        self.DroneCentroidMarker = (p.loadURDF("sphere2.urdf",
+                            [0,0,-999],
+                            p.getQuaternionFromEuler([0,0,0]),
+                            globalScaling=0.1,
+                            physicsClientId=self.CLIENT
+                            ))
+
         #### Remove default damping #################################
         # for i in range(self.NUM_DRONES):
         #     p.changeDynamics(self.DRONE_IDS[i], -1, linearDamping=0, angularDamping=0)
@@ -1247,34 +1262,27 @@ class BaseAviary(gym.Env):
         local_clustering = MathematicalFlock._local_clustering(self, cattle_states, drone_states, k=0.5)                    #Keeps herd members grouped locally
         global_clustering = MathematicalFlock._global_clustering(self, cattle_states, drone_states)                         #Keeps herd together on a larger scale
         flocking = MathematicalFlock._flocking(self, cattle_states, drone_states)                                           #aligns herd velocoites (cohesion alignment rules)
-        remain_in_bound_u = MathematicalFlock._calc_remain_in_boundary_control(self, cattle_states, self._boundary, k=5.0)  #pushes agents back inside simulation limits
+        #remain_in_bound_u = MathematicalFlock._calc_remain_in_boundary_control(self, cattle_states, self._boundary, k=5.0)  #pushes agents back inside simulation limits
 
         #Calculate herd density
-        herd_density = MathematicalFlock._herd_density(herd_states=cattle_states,shepherd_states=drone_states)
+        #herd_density = MathematicalFlock._herd_density(herd_states=cattle_states,shepherd_states=drone_states)
 
         #Combine controls into acceleration
         qdot = (1 - self._flocking_condition) * local_clustering + \
-                flocking + self._flocking_condition * global_clustering + \
-                (1 - self._flocking_condition) * remain_in_bound_u
+                flocking + self._flocking_condition * global_clustering #+ \
+                #(1 - self._flocking_condition) * remain_in_bound_u
+        qdot = qdot * 0.005
         
         #Update Velocities and positions
         cattle_states[:, 2:4] += qdot * self._dt_sqr
         pdot = cattle_states[:, 2:4]
         cattle_states[:, :2] += pdot * self._dt
 
-        #Apply velocity limits and update herds
-        for idx, herd in enumerate(self._herds):
-            # Scale velocity
-            if np.linalg.norm(cattle_states[idx, 2:4]) > herd._max_v:
-                cattle_states[idx, 2:4] = herd._max_v * \
-                    utils.unit_vector(cattle_states[idx, 2:4])
+        for idx, cattle_id in enumerate(self.CATTLE_IDS):
+            pos = cattle_states[idx, :3]  # Assuming the first three columns are x, y, z
+            orn = p.getQuaternionFromEuler([0, 0, 0])  # Assuming no change in orientation
 
-            herd.velocity = cattle_states[idx, 2:4]
-            herd.pose = cattle_states[idx, :2]
-            herd._rotate_image(herd.velocity)
-
-            herd._force = 2 * herd_density[idx, :]
-            herd._plot_force = True
+            p.resetBasePositionAndOrientation(cattle_id, pos, orn, physicsClientId=self.CLIENT)
 
         #Tack overall state
         herd_mean = np.sum(cattle_states[:, :2], axis=0) / cattle_states.shape[0]

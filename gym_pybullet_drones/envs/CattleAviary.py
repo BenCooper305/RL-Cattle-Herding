@@ -56,7 +56,7 @@ class CattleAviary(BaseRLAviary):
             The type of action space (1 or 3D; RPMS, thurst and torques, or waypoint with PID control)
 
         """
-        self.EPISODE_LEN_SEC = 30
+        self.EPISODE_LEN_SEC = 20
         super().__init__(drone_model=drone_model,
                          num_drones=num_drones,
                          num_cattel=num_cattel,
@@ -73,11 +73,12 @@ class CattleAviary(BaseRLAviary):
                          )
         
         self._last_dist_to_centroid = None
-        self.MAX_VEL = 10
-        self.MAX_DIST = 10
+        self.MAX_VEL = 6
+        self.MAX_DIST = 7
         self.prev_dists = None
-        self.MAX_ALT_ERROR = self.DRONE_TARGET_ALTITUDE * 0.4
-        self.REWARD_WEIGHTS = dict(proximity=0.5, approach=1, altitude=0.5)
+        self.prev_cent_dists = None
+        self.MAX_ALT_ERROR = self.DRONE_TARGET_ALTITUDE * 0.1
+        self.REWARD_WEIGHTS = dict(proximity=0.3, approach=0.7, centroid=1)
     ################################################################################
     
 
@@ -85,14 +86,16 @@ class CattleAviary(BaseRLAviary):
         """Reward: move toward centroid, stay near, avoid collisions."""
 
         #Drone and herd info
-        centroid = self.HerdCentroid()
+        cattle_centroid = self.HerdCentroid()
+        drone_centroid = self.DroneCentroid()
         states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
         pos = states[:, 0:3]
         vel = states[:, 10:13]
-        dists = np.linalg.norm(pos - centroid, axis=1)
+        dists = np.linalg.norm(pos - cattle_centroid, axis=1)
+        cent_dist = np.linalg.norm(drone_centroid - cattle_centroid, axis=-1)
 
         #Directional reward (dot product of vel and direction)
-        dir_to_centroid = centroid - pos
+        dir_to_centroid = cattle_centroid - pos
         dir_unit = np.where(dists[:, None] > 0, dir_to_centroid / dists[:, None], 0.0)
         approach_reward = np.mean(np.sum(vel * dir_unit, axis=1)) / (self.MAX_VEL + 1e-6)
 
@@ -103,10 +106,18 @@ class CattleAviary(BaseRLAviary):
         progress_reward = np.mean(dist_change / (self.MAX_DIST + 1e-6))
         self.prev_dists = dists
 
+        #Centroid proximity reward
+        if self.prev_cent_dists is None:
+            self.prev_cent_dists = cent_dist
+        cent_dist_change = self.prev_cent_dists - cent_dist
+        centroid_reward = np.mean(cent_dist_change / (self.MAX_DIST + 1e-6))
+        self.prev_cent_dists = cent_dist
+
         #Combine with weights
         r = (
             approach_reward * self.REWARD_WEIGHTS["approach"]
             + progress_reward * self.REWARD_WEIGHTS["proximity"]
+            + centroid_reward * self.REWARD_WEIGHTS["centroid"]
             )
 
         return float(r)
@@ -122,10 +133,12 @@ class CattleAviary(BaseRLAviary):
             Whether the current episode is done.
 
         """
-        states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
-        centroid = self.HerdCentroid()
+        cattle_centroid = self.HerdCentroid()
+        drone_centroid = self.DroneCentroid()
+        cent_dist = np.linalg.norm(drone_centroid - cattle_centroid, axis=-1)
+
         # Check if all drones are within 0.5 of the centroid
-        if all(np.linalg.norm(centroid - states[i][0:3]) < 0.5 for i in range(self.NUM_DRONES)):
+        if cent_dist < 0.1:
             return True
         
         return False
@@ -141,7 +154,27 @@ class CattleAviary(BaseRLAviary):
             True if the episode should be truncated, False otherwise.
         """
         states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        cattle_centroid = self.HerdCentroid()
+        drone_centroid = self.DroneCentroid()
+        cent_dist = np.linalg.norm(drone_centroid - cattle_centroid, axis=-1)
 
+        if cent_dist > self.MAX_DIST:
+            return True
+        
+        for i in range(self.NUM_DRONES):
+            roll = states[i][7]
+            pitch = states[i][8]
+            if abs(roll) > 0.5 or abs(pitch) > 0.5:
+                return True
+            
+            z = states[i][2]
+            if abs(z - self.DRONE_TARGET_ALTITUDE) > self.MAX_ALT_ERROR:
+                return True
+            
+            vel = states[i][10:13]
+            if np.linalg.norm(vel) > self.MAX_VEL:
+                return True
+    
         # --- Episode timeout ---
         if self.step_counter / self.PYB_FREQ > self.EPISODE_LEN_SEC:
             return True
@@ -187,7 +220,28 @@ class CattleAviary(BaseRLAviary):
 
         return centroid
 
+    ################################################################################
+        
+    def DroneCentroid(self):
+        """
 
+        Calculates the center of the herd and updates the centorid marker to that location
+
+        """
+        
+        drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        drone_positions = drone_states[:, 0:3] 
+
+        centroid_xy = np.mean(drone_positions[:, :2], axis=0)
+        centroid = np.array([centroid_xy[0], centroid_xy[1], self.DRONE_TARGET_ALTITUDE])
+
+        p.resetBasePositionAndOrientation(self.DroneCentroidMarker,
+                                            centroid,
+                                            p.getQuaternionFromEuler([0, 0, 0]),
+                                            physicsClientId=self.CLIENT)
+        
+
+        return centroid
     
     ################################################################################
     

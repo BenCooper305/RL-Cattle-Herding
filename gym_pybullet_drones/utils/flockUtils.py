@@ -14,6 +14,9 @@ class MathematicalFlock():
     C1_gamma = 5
     C2_gamma = 0.2 * np.sqrt(C1_gamma)
 
+    C1_beta = 20
+    C2_beta = 2 * np.sqrt(C1_beta)
+
     ALPHA_RANGE = 40
     ALPHA_DISTANCE = 40
     ALPHA_ERROR = 5
@@ -56,21 +59,21 @@ class MathematicalFlock():
 
         self._states = np.empty((0, 2))
 
-    def _flocking(self, herd_states: np.ndarray, shepherd_states: np.ndarray) -> np.ndarray:
-        u = np.zeros((herd_states.shape[0], 2))
-        alpha_adjacency_matrix = self._get_alpha_adjacency_matrix(herd_states, r=self._sensing_range)
-        delta_adjacency_matrix = self._get_delta_adjacency_matrix(herd_states, self._shepherds, r=self._sensing_range)
+    def _flocking(self, cattle_states: np.ndarray, drone_states: np.ndarray) -> np.ndarray:
+        u = np.zeros((cattle_states.shape[0], 2))
+        alpha_adjacency_matrix = self._get_alpha_adjacency_matrix(cattle_states, r=self._sensing_range)
+        delta_adjacency_matrix = self._get_delta_adjacency_matrix(cattle_states, drone_states, r=self._sensing_range)
 
-        for idx in range(herd_states.shape[0]):
+        for idx in range(cattle_states.shape[0]):
             # Flocking terms
             neighbor_idxs = alpha_adjacency_matrix[idx]
-            u_alpha = self._calc_flocking_control(idx=idx, neighbors_idxs=neighbor_idxs, herd_states=herd_states)
+            u_alpha = self._calc_flocking_control(idx=idx, neighbors_idxs=neighbor_idxs, cattle_states=cattle_states)
 
             # Shepherd
-            shepherd_idxs = delta_adjacency_matrix[idx]
-            u_delta = self._calc_shepherd_interaction_control(idx=idx, shepherd_idxs=shepherd_idxs,
+            drones_idxs = delta_adjacency_matrix[idx]
+            u_delta = self._calc_shepherd_interaction_control(idx=idx, drones_idxs=drones_idxs,
                                                             delta_adj_matrix=delta_adjacency_matrix,
-                                                            herd_states=herd_states)
+                                                            cattle_states=cattle_states, drone_states=drone_states)
 
             # Ultimate flocking model
             u[idx] = u_alpha + u_delta
@@ -145,15 +148,15 @@ class MathematicalFlock():
                 all_gamma[this_indx, :] = u_gamma
         return all_gamma
 
-    def _boundary(self, herd_states, boundary: np.ndarray, k: float):
+    def _boundary(self, cattle_states, boundary: np.ndarray, k: float):
         x_min = boundary['x_min']
         x_max = boundary['x_max']
         y_min = boundary['y_min']
         y_max = boundary['y_max']
 
-        u = np.zeros_like(herd_states[:, 2:4])
-        for idx in range(herd_states.shape[0]):
-            qi = herd_states[idx, :2]
+        u = np.zeros_like(cattle_states[:, 2:4])
+        for idx in range(cattle_states.shape[0]):
+            qi = cattle_states[idx, :2]
 
             if qi[0] < x_min:
                 u[idx, :] += k * np.array([1.0, 0.0])
@@ -168,13 +171,13 @@ class MathematicalFlock():
                 u[idx, :] += k * np.array([0.0, -1.0])
         return u
 
-    def _calc_flocking_control(self, idx: int, neighbors_idxs: np.ndarray, herd_states: np.ndarray):
-        qi = herd_states[idx, :2]
-        pi = herd_states[idx, 2:4]
+    def _calc_flocking_control(self, idx: int, neighbors_idxs: np.ndarray, cattle_states: np.ndarray):
+        qi = cattle_states[idx, :2]
+        pi = cattle_states[idx, 2:4]
         u_alpha = np.zeros(2)
         if sum(neighbors_idxs) > 0:
-            qj = herd_states[neighbors_idxs, :2]
-            pj = herd_states[neighbors_idxs, 2:4]
+            qj = cattle_states[neighbors_idxs, :2]
+            pj = cattle_states[neighbors_idxs, 2:4]
 
             alpha_grad = self._gradient_term(
                 c=MathematicalFlock.C2_alpha, qi=qi, qj=qj,
@@ -192,9 +195,9 @@ class MathematicalFlock():
     def _calc_obstacle_avoidance_control(self, idx: int,
                                          obstacle_idxs: np.ndarray,
                                          beta_adj_matrix: np.ndarray,
-                                         herd_states: np.ndarray):
-        qi = herd_states[idx, :2]
-        pi = herd_states[idx, 2:4]
+                                         cattle_states: np.ndarray):
+        qi = cattle_states[idx, :2]
+        pi = cattle_states[idx, 2:4]
         u_beta = np.zeros(2)
         if sum(obstacle_idxs) > 0:
             # Create beta agent
@@ -229,19 +232,20 @@ class MathematicalFlock():
         return u_gamma
 
     def _calc_shepherd_interaction_control(self, idx: int,
-                                           shepherd_idxs: np.ndarray,
+                                           drones_idxs: np.ndarray,
                                            delta_adj_matrix: np.ndarray,
-                                           herd_states: np.ndarray):
-        qi = herd_states[idx, :2]
-        pi = herd_states[idx, 2:4]
+                                           cattle_states: np.ndarray,
+                                           drone_states: np.ndarray):
+        qi = cattle_states[idx, :2]
+        pi = cattle_states[idx, 2:4]
         u_delta = np.zeros(2)
-        if sum(shepherd_idxs) > 0:
+        if sum(drones_idxs) > 0:
             # Create delta_agent
             delta_in_radius = np.where(delta_adj_matrix[idx] > 0)
             delta_agents = np.array([]).reshape((0, 4))
-            for del_idx in delta_in_radius[0]:
-                delta_agent = self._shepherds[del_idx].induce_delta_agent(self._herds[idx])
-                delta_agents = np.vstack((delta_agents, delta_agent))
+            # for del_idx in delta_in_radius[0]:
+            #     delta_agent = drone_states[del_idx, 0, :3].induce_delta_agent(self._herds[idx])
+            #     delta_agents = np.vstack((delta_agents, delta_agent))
 
             qid = delta_agents[:, :2]
             pid = delta_agents[:, 2:4]
@@ -254,7 +258,7 @@ class MathematicalFlock():
                                                             r=MathematicalFlock.BETA_RANGE)
             u_delta = delta_grad + delta_consensus
 
-        u_delta += self._predator_avoidance_term(si=qi, r=self._danger_range, k=650000)
+        u_delta += self._predator_avoidance_term(si=qi, r=self._danger_range, k=650000, drone_states=drone_states)
 
         return u_delta
 
@@ -274,28 +278,25 @@ class MathematicalFlock():
         # Group objective term
         return -c1 * MathUtils.sigma_1(qi - pos) - c2 * (pi)
 
-    def _predator_avoidance_term(self, si: np.ndarray, r: float, k: float):
+    def _predator_avoidance_term(self, si: np.ndarray, r: float, k: float, drone_states: np.ndarray):
         si_dot = np.zeros(2)
-        for shepherd in self._shepherds:
-            di = shepherd.pose.reshape(2)
+        for di in drone_states[:, 0:2]: 
             if np.linalg.norm(di - si) <= r:
                 si_dot += -k * (di - si)/(np.linalg.norm(di - si))**3
         return si_dot
 
-    def _get_alpha_adjacency_matrix(self, herd_states: np.ndarray, r: float) -> np.ndarray:
-        adj_matrix = np.array([np.linalg.norm(herd_states[i, :2]-herd_states[:, :2], axis=-1) <= r
-                               for i in range(len(herd_states))])
+    def _get_alpha_adjacency_matrix(self, cattle_states: np.ndarray, r: float) -> np.ndarray:
+        adj_matrix = np.array([np.linalg.norm(cattle_states[i, :2]-cattle_states[:, :2], axis=-1) <= r
+                               for i in range(len(cattle_states))])
         np.fill_diagonal(adj_matrix, False)
         return adj_matrix
 
-    def _get_delta_adjacency_matrix(self, agents: np.ndarray, delta_agents: list, r: float) -> np.ndarray:
-        adj_matrix = np.array([]).reshape((0, len(delta_agents)))
-        for i in range(len(agents)):
+    def _get_delta_adjacency_matrix(self, cattle_states: np.ndarray, drone_states: np.ndarray, r: float) -> np.ndarray:
+        adj_matrix = np.array([]).reshape((0, len(drone_states)))
+        for i in range(len(cattle_states)):
             adj_vec = []
-            delta_agent: Shepherd
-            for delta_agent in delta_agents:
-                adj_vec.append(
-                    delta_agent.in_entity_radius(agents[i, :2], r=r))
+            for delta_agent in drone_states:
+                adj_vec.append(self.in_entity_radius(drone_states[i,: 2], cattle_states[i, :2], r=r))
             adj_matrix = np.vstack((adj_matrix, np.array(adj_vec)))
         return adj_matrix
 
@@ -303,5 +304,9 @@ class MathematicalFlock():
         r_alpha = MathUtils.sigma_norm([range])
         return MathUtils.bump_function(MathUtils.sigma_norm(q_js-q_i)/r_alpha)
 
+    def in_entity_radius(self, drone_states, qi: np.ndarray, r: float) -> bool:
+        _r = 40
+        return np.linalg.norm(drone_states - qi) <= (r + _r)
+    
     def _get_n_ij(self, q_i, q_js):
         return MathUtils.sigma_norm_grad(q_js - q_i)
