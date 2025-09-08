@@ -9,7 +9,7 @@ import gym_pybullet_drones.utils.utils as utils
 from gym_pybullet_drones.utils.mathUtils import MathUtils
 
 class MathematicalFlock(): #Removed Behavior inheritance
-    C1_alpha = 3
+    C1_alpha = 10
     C2_alpha = 2 * np.sqrt(C1_alpha)
     C1_gamma = 5
     C2_gamma = 0.2 * np.sqrt(C1_gamma)
@@ -17,9 +17,9 @@ class MathematicalFlock(): #Removed Behavior inheritance
     C1_beta = 20
     C2_beta = 2 * np.sqrt(C1_beta)
 
-    ALPHA_RANGE = 40
-    ALPHA_DISTANCE = 40
-    ALPHA_ERROR = 5
+    ALPHA_RANGE = 5
+    ALPHA_DISTANCE = 5
+    ALPHA_ERROR = 1
     BETA_RANGE = 30
     BETA_DISTANCE = 30
 
@@ -28,6 +28,9 @@ class MathematicalFlock(): #Removed Behavior inheritance
                  danger_range: float,
                  initial_consensus: np.ndarray):
 
+        # self._herds = []
+        # self._shepherds = []
+    
         self._sample_t = 0
         self._pause_agents = np.zeros(1)
 
@@ -39,39 +42,24 @@ class MathematicalFlock(): #Removed Behavior inheritance
         #Replaced in _flockupdate()
         # self._enable_flocking = True
         # self._flocking_condition = 0
-
-        #Not used
-        # self._mass = 0
-
-        #RELOCATED to _flockupdate()
         # self._dt = 0.2
         # self._dt_sqr = 0.1
 
-        self._boundary = {
-            'x_min': 300,
-            'x_max': 1200,
-            'y_min': 300,
-            'y_max': 500,
-        }
+        # self._contour_agents = []
+        # self._plot_voronoi = False
 
         # Clusters
         self._total_clusters = 0
         self._clusters = []
-
-        #Not used
-        #self._plot_cluster = False 
-        self._states = np.empty((0, 2))
+        #self._plot_cluster = False ---Not used, was used in display()
 
     #REMOVED add_herd()
     #REMOVED add_shepherd()
     #REMOVED add_obstacle()
     #REMOVED set_consensus()
     #REMOVED get_herd_mean()
-
     #RELOCATED update() to flockupdate in BaseAviary.py
-
     #REMOVED display()
-
 
     ###MODIFIED###
     # Mathematical model of flocking
@@ -101,14 +89,11 @@ class MathematicalFlock(): #Removed Behavior inheritance
     def _herd_density(self, herd_states: np.ndarray,
                       shepherd_states: np.ndarray):
         herd_densities = np.zeros((herd_states.shape[0], 2))
-        alpha_adjacency_matrix = self._get_alpha_adjacency_matrix(herd_states,
-                                                                  r=self._sensing_range)
+        alpha_adjacency_matrix = self._get_alpha_adjacency_matrix(herd_states, r=self._sensing_range)
         for idx in range(herd_states.shape[0]):
             # Density
             neighbor_idxs = alpha_adjacency_matrix[idx]
-            density = self._calc_density(
-                idx=idx, neighbors_idxs=neighbor_idxs,
-                herd_states=herd_states)
+            density = self._calc_density(idx=idx, neighbors_idxs=neighbor_idxs, herd_states=herd_states)
             herd_densities[idx] = density
         return herd_densities
 
@@ -260,8 +245,9 @@ class MathematicalFlock(): #Removed Behavior inheritance
             delta_in_radius = np.where(delta_adj_matrix[idx] > 0)
             delta_agents = np.array([]).reshape((0, 4))
             for del_idx in delta_in_radius[0]:
-                delta_agent = drone_states[del_idx, 0, :3].induce_delta_agent(self._herds[idx])
-                delta_agents = np.vstack((delta_agents, delta_agent))
+                pass
+                # delta_agent = drone_states[del_idx, 0, :3].induce_delta_agent(self._herds[idx])
+                # delta_agents = np.vstack((delta_agents, delta_agent))
 
             qid = delta_agents[:, :2]
             pid = delta_agents[:, 2:4]
@@ -285,13 +271,10 @@ class MathematicalFlock(): #Removed Behavior inheritance
     def _velocity_consensus_term(self, c: float, qi: np.ndarray,
                                  qj: np.ndarray, pi: np.ndarray,
                                  pj: np.ndarray, r: float):
-        # Velocity consensus term
         a_ij = self._get_a_ij(qi, qj, r)
         return c * np.sum(a_ij*(pj-pi), axis=0)
 
-    def _group_objective_term(self, c1: float, c2: float,
-                              pos: np.ndarray, qi: np.ndarray, pi: np.ndarray):
-        # Group objective term
+    def _group_objective_term(self, c1: float, c2: float, pos: np.ndarray, qi: np.ndarray, pi: np.ndarray):
         return -c1 * MathUtils.sigma_1(qi - pos) - c2 * (pi)
 
     def _predator_avoidance_term(self, si: np.ndarray, r: float, k: float, drone_states: np.ndarray):
@@ -334,6 +317,7 @@ class MathematicalFlock(): #Removed Behavior inheritance
             w = (1/(1 + k * np.linalg.norm(sij))) * utils.unit_vector(sij)
             w_sum += w
         return w_sum
+    
     #REMOVED _pairwise_potentia_vec
     #REMOVED _pairwise_potential_mag
     #REMOVED _get_herd_laplacian_matrix

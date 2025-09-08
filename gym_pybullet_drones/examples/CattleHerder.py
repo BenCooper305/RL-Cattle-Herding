@@ -42,7 +42,7 @@ DEFAULT_ACT = ActionType('vel') # 'rpm' or 'pid' or 'vel' or 'one_d_rpm' or 'one
 DEFAULT_DRONES = 4 #number of herding drones
 DEFAULT_CATTLE = 3 #number of cattle to herd
 
-MAX_TIMESTEPS = 300000  #max number of time steps before learning stops
+MAX_TIMESTEPS = 3000  #max number of time steps before learning stops
 EVALUATION_FREQUENCY = 2048 #number of steps to collect before updating policy
 
 EVALUTE_ONLY = False #not used - skips training and replays a saved model
@@ -56,7 +56,6 @@ def run(
         record_video=DEFAULT_RECORD_VIDEO, 
         local=True):
 
-    #filename = os.path.join(output_folder, 'save-'+datetime.now().strftime("%m.%d.%Y_%H.%M.%S"))
     filename = os.path.join(output_folder, 'model-v4-3')
     if not os.path.exists(filename):
         os.makedirs(filename+'/')

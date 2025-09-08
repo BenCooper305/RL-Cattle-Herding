@@ -78,13 +78,13 @@ class CattleAviary(BaseRLAviary):
         self.prev_dists = None
         self.prev_cent_dists = None
 
-        self.SPACING_A = 1.1 #pos amp coef
-        self.SPACING_B = 2 #neg amp coef
-        self.SPACING_C = 1.1 #width of pos coef
+        self.SPACING_A = 1.5 #pos amp coef
+        self.SPACING_B = 2.4 #neg amp coef
+        self.SPACING_C = 0.8 #width of pos coef
         self.SPACING_K = 0.3 #width of neg coef
-        self.SPACING_D = 0.5 #pos peak offset
-        self.SPACING_R0 = 2.5 #piecewise threshold
-        self.SPACING_LAM = 0.2 #exp decay
+        self.SPACING_D = 0.1 #pos peak offset
+        self.SPACING_R0 = 1.25 #piecewise threshold
+        self.SPACING_LAM = 0.7 #exp decay
 
 
         self.MAX_ALT_ERROR = self.DRONE_TARGET_ALTITUDE * 0.1
@@ -125,14 +125,20 @@ class CattleAviary(BaseRLAviary):
 
         #drone to drone spcaing reward
         drone_spacing_reward = 0
+        # for drone in range(self.NUM_DRONES):
+        #     drone_pos = states[drone, 0:2]
+        #     for other_drones in range(drone + 1, self.NUM_DRONES):
+        #         if drone == other_drones:
+        #             continue
+        #         other_drones_pos = states[other_drones, 0:2]
+        #         dist = np.linalg.norm(drone_pos - other_drones_pos)
+        #         drone_spacing_reward += self.SpacingRewardValue(dist)
+
         for drone in range(self.NUM_DRONES):
-            drone_pos = states[drone, 0:3]
-            for other_drones in range(drone + 1, self.NUM_DRONES):
-                if drone == other_drones:
-                    continue
-                other_drones_pos = states[other_drones, 0:3]
-                dist = np.linalg.norm(drone_pos - other_drones_pos)
-                drone_spacing_reward += self.SpacingRewardValue(dist)
+            drone_pos = states[drone, 0:2]
+            dist = np.linalg.norm(drone_pos - drone_centroid[0:2])
+            drone_spacing_reward += self.SpacingRewardValue(dist)
+
 
         drone_spacing_reward /= self.NUM_DRONES
 
