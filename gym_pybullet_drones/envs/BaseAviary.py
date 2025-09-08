@@ -489,6 +489,8 @@ class BaseAviary(gym.Env, MathematicalFlock):
         in the `reset()` function.
 
         """
+        self.randomCowSpawn = False
+
         #### Initialize/reset counters and zero-valued variables ###
         self.RESET_TIME = time.time()
         self.step_counter = 0
@@ -531,38 +533,46 @@ class BaseAviary(gym.Env, MathematicalFlock):
                                     physicsClientId=self.CLIENT
                                     ) for i in range(self.NUM_DRONES)])
 
-        # Minimum distance from origin
-        min_radius = 1.0  
-        # Maximum distance you want cattle to spawn
-        max_radius = 3.0  
-
-        # Pick a random angle [0, 2π)
-        theta = np.random.uniform(0, 2*np.pi)
-        # Pick a random radius [min_radius, max_radius)
-        r = np.random.uniform(min_radius, max_radius)
-
-        # Convert polar → Cartesian
-        x = r * np.cos(theta)
-        y = r * np.sin(theta)
-        z = 0.1
-
-        herd_center = np.array([x, y, z])
-
         self.CATTLE_IDS = []
-        for i in range(self.NUM_CATTLE):
-            # Random offset around the herd centre (e.g., within a 1m radius circle)
-            offset = np.random.uniform(low=0.0, high=1.0, size=2)
-            pos = herd_center[:2] + offset
-            cow_id = p.loadURDF(
-                "cube_no_rotation.urdf",
-                [pos[0], pos[1], herd_center[2]],  # keep z fixed at 0.1
-                p.getQuaternionFromEuler([0, 0, 0]),
-                globalScaling=0.2,
-                physicsClientId=self.CLIENT
-            )
-            self.CATTLE_IDS.append(cow_id)
 
-        self.CATTLE_IDS = np.array(self.CATTLE_IDS)
+        if self.randomCowSpawn:
+            # Minimum distance from origin
+            min_radius = 1.0  
+            # Maximum distance you want cattle to spawn
+            max_radius = 3.0  
+
+            # Pick a random angle [0, 2π)
+            theta = np.random.uniform(0, 2*np.pi)
+            # Pick a random radius [min_radius, max_radius)
+            r = np.random.uniform(min_radius, max_radius)
+
+            # Convert polar → Cartesian
+            x = r * np.cos(theta)
+            y = r * np.sin(theta)
+            z = 0.1
+
+            herd_center = np.array([x, y, z])
+
+            for i in range(self.NUM_CATTLE):
+                # Random offset around the herd centre (e.g., within a 1m radius circle)
+                offset = np.random.uniform(low=0.0, high=1.0, size=2)
+                pos = herd_center[:2] + offset
+                cow_id = p.loadURDF(
+                    "cube_no_rotation.urdf",
+                    [pos[0], pos[1], herd_center[2]],  # keep z fixed at 0.1
+                    p.getQuaternionFromEuler([0, 0, 0]),
+                    globalScaling=0.2,
+                    physicsClientId=self.CLIENT
+                )
+                self.CATTLE_IDS.append(cow_id)
+        else:
+            self.CATTLE_IDS = np.array([p.loadURDF(
+                                "cube_no_rotation.urdf",
+                                [(2 + i/2), (2 + i/2), 0.2],
+                                p.getQuaternionFromEuler([0, 0, 0]),
+                                globalScaling=0.2,
+                                physicsClientId=self.CLIENT
+                                ) for i in range(self.NUM_CATTLE)])
                 
         self.CattleCentroidMarker = (p.loadURDF("sphere2.urdf",
                                     [0,0,-999],
@@ -1242,49 +1252,81 @@ class BaseAviary(gym.Env, MathematicalFlock):
     #######################################################################
 
     def _flockingStep(self):
-         #Set flocking condition
-        self._flocking_condition = False
+        #events = self._get_events(args)
 
-        all_drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
-        all_cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
+        # for event in events:
+        #     if event.type == pygame.KEYDOWN:
+        #         if event.key == pygame.K_DOWN and self._enable_flocking:
+        #             self._enable_flocking = False
+        #         if event.key == pygame.K_UP and not self._enable_flocking:
+        #             self._enable_flocking = True
+
+        # if self._enable_flocking:
+        #     self._flocking_condition = 1
+        # else:
+        #     self._flocking_condition = 0
+
+        self._flocking_condition = True
+
+        self._dt = 0.2
+        self._dt_sqr = 0.1
+
+        # self._flocking_condition = self._follow_cursor
+
+        # herd: Herd
+        # herd_states = np.array([]).reshape((0, 4))
+
+        # for herd in self._herds:
+        #     # Grab and put all poses into a matrix
+        #     herd_states = np.vstack(
+        #         (herd_states, np.hstack((herd.pose, herd.velocity))))
 
         cattle_states = np.array([
-            np.hstack((all_cattle_states[i][0:2], all_cattle_states[i][3:5]))
+            np.hstack((self._getCowStateVector(i)[0:2], self._getCowStateVector(i)[3:5]))
             for i in range(self.NUM_CATTLE)
         ])
 
+        # shepherd: Shepherd
+        # shepherd_states = np.array([]).reshape((0, 4))
+        # for shepherd in self._shepherds:
+        #     # Grab and put all poses into a matrix
+        #     shepherd_states = np.vstack(
+        #         (shepherd_states, np.hstack((shepherd.pose, shepherd.velocity))))
+
         drone_states = np.array([
-            np.hstack((all_drone_states[j][0:2], all_drone_states[j][10:12]))
-            for j in range(self.NUM_DRONES)
+            np.hstack((self._getDroneStateVector(i)[0:2], self._getDroneStateVector(i)[10:12]))
+            for i in range(self.NUM_DRONES)
         ])
 
         #Calculate Control Influences
         local_clustering = MathematicalFlock._local_clustering(self, cattle_states, drone_states, k=0.5)                    #Keeps herd members grouped locally
         global_clustering = MathematicalFlock._global_clustering(self, cattle_states, drone_states)                         #Keeps herd together on a larger scale
         flocking = MathematicalFlock._flocking(self, cattle_states, drone_states)                                           #aligns herd velocoites (cohesion alignment rules)
-        #remain_in_bound_u = MathematicalFlock._calc_remain_in_boundary_control(self, cattle_states, self._boundary, k=5.0)  #pushes agents back inside simulation limits
+        remain_in_bound_u = MathematicalFlock._calc_remain_in_boundary_control(self, cattle_states, self._boundary, k=5.0)  #pushes agents back inside simulation limits
 
-        #Calculate herd density
-        #herd_density = MathematicalFlock._herd_density(herd_states=cattle_states,shepherd_states=drone_states)
+        #Density
+        herd_density = MathematicalFlock._herd_density(herd_states=cattle_states,shepherd_states=drone_states)
 
         #Combine controls into acceleration
         qdot = (1 - self._flocking_condition) * local_clustering + \
-                flocking + self._flocking_condition * global_clustering #+ \
-                #(1 - self._flocking_condition) * remain_in_bound_u
+                flocking + self._flocking_condition * global_clustering + \
+                (1 - self._flocking_condition) * remain_in_bound_u
+        
+        #DEBUGGER - SLOWS ACCELERAITON TO VIEW WHATS HAPPENING
         qdot = qdot * 0.005
         
-        #Update Velocities and positions
+        #Update Velocities and positions ----CHECK THIS
         cattle_states[:, 2:4] += qdot * self._dt_sqr
         pdot = cattle_states[:, 2:4]
         cattle_states[:, :2] += pdot * self._dt
 
         for idx, cattle_id in enumerate(self.CATTLE_IDS):
-            pos = cattle_states[idx, :3]  # Assuming the first three columns are x, y, z
-            orn = p.getQuaternionFromEuler([0, 0, 0])  # Assuming no change in orientation
+            pos = cattle_states[idx, :3]
+            orn = p.getQuaternionFromEuler([0, 0, 0])#Assuming no change in orientation
 
             p.resetBasePositionAndOrientation(cattle_id, pos, orn, physicsClientId=self.CLIENT)
 
         #Tack overall state
-        herd_mean = np.sum(cattle_states[:, :2], axis=0) / cattle_states.shape[0]
-        self._states = np.vstack((herd_mean, drone_states[:, :2]))
+        # herd_mean = np.sum(cattle_states[:, :2], axis=0) / cattle_states.shape[0]
+        # self._states = np.vstack((herd_mean, drone_states[:, :2]))
         # self._states = herd_states[:, :2]

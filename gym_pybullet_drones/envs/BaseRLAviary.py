@@ -355,3 +355,49 @@ class BaseRLAviary(BaseAviary):
 
         ret = np.array(ret_list, dtype='float32')
         return ret
+
+    ################################################################################  
+    
+    def HerdCentroid(self):
+        """
+
+        Calculates the center of the herd and updates the centorid marker to that location
+
+        """
+        
+        cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
+        cattle_positions = cattle_states[:, 0:3] 
+
+        centroid_xy = np.mean(cattle_positions[:, :2], axis=0)
+        centroid = np.array([centroid_xy[0], centroid_xy[1], self.DRONE_TARGET_ALTITUDE])
+
+        p.resetBasePositionAndOrientation(self.CattleCentroidMarker,
+                                            centroid,
+                                            p.getQuaternionFromEuler([0, 0, 0]),
+                                            physicsClientId=self.CLIENT)
+        
+
+        return centroid
+
+    ################################################################################
+        
+    def DroneCentroid(self):
+        """
+
+        Calculates the center of the herd and updates the centorid marker to that location
+
+        """
+        
+        drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        drone_positions = drone_states[:, 0:3] 
+
+        centroid_xy = np.mean(drone_positions[:, :2], axis=0)
+        centroid = np.array([centroid_xy[0], centroid_xy[1], self.DRONE_TARGET_ALTITUDE])
+
+        p.resetBasePositionAndOrientation(self.DroneCentroidMarker,
+                                            centroid,
+                                            p.getQuaternionFromEuler([0, 0, 0]),
+                                            physicsClientId=self.CLIENT)
+        
+
+        return centroid

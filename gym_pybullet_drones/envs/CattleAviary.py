@@ -77,8 +77,18 @@ class CattleAviary(BaseRLAviary):
         self.MAX_DIST = 7
         self.prev_dists = None
         self.prev_cent_dists = None
+
+        self.SPACING_A = 1.1 #pos amp coef
+        self.SPACING_B = 2 #neg amp coef
+        self.SPACING_C = 1.1 #width of pos coef
+        self.SPACING_K = 0.3 #width of neg coef
+        self.SPACING_D = 0.5 #pos peak offset
+        self.SPACING_R0 = 2.5 #piecewise threshold
+        self.SPACING_LAM = 0.2 #exp decay
+
+
         self.MAX_ALT_ERROR = self.DRONE_TARGET_ALTITUDE * 0.1
-        self.REWARD_WEIGHTS = dict(proximity=0.3, approach=0.7, centroid=1)
+        self.REWARD_WEIGHTS = dict(proximity=0.5, approach=0.8, centroid=1, drone_spacing = 1)
     ################################################################################
     
 
@@ -113,11 +123,25 @@ class CattleAviary(BaseRLAviary):
         centroid_reward = np.mean(cent_dist_change / (self.MAX_DIST + 1e-6))
         self.prev_cent_dists = cent_dist
 
+        #drone to drone spcaing reward
+        drone_spacing_reward = 0
+        for drone in range(self.NUM_DRONES):
+            drone_pos = states[drone, 0:3]
+            for other_drones in range(drone + 1, self.NUM_DRONES):
+                if drone == other_drones:
+                    continue
+                other_drones_pos = states[other_drones, 0:3]
+                dist = np.linalg.norm(drone_pos - other_drones_pos)
+                drone_spacing_reward += self.SpacingRewardValue(dist)
+
+        drone_spacing_reward /= self.NUM_DRONES
+
         #Combine with weights
         r = (
-            approach_reward * self.REWARD_WEIGHTS["approach"]
-            + progress_reward * self.REWARD_WEIGHTS["proximity"]
-            + centroid_reward * self.REWARD_WEIGHTS["centroid"]
+            # approach_reward * self.REWARD_WEIGHTS["approach"]
+            # + progress_reward * self.REWARD_WEIGHTS["proximity"]
+            # + centroid_reward * self.REWARD_WEIGHTS["centroid"]
+            drone_spacing_reward * self.REWARD_WEIGHTS["drone_spacing"]
             )
 
         return float(r)
@@ -198,56 +222,10 @@ class CattleAviary(BaseRLAviary):
         return {"answer": 42} #### Calculated by the Deep Thought supercomputer in 7.5M years
     
     ################################################################################
-        
-    def HerdCentroid(self):
-        """
-
-        Calculates the center of the herd and updates the centorid marker to that location
-
-        """
-        
-        cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
-        cattle_positions = cattle_states[:, 0:3] 
-
-        centroid_xy = np.mean(cattle_positions[:, :2], axis=0)
-        centroid = np.array([centroid_xy[0], centroid_xy[1], self.DRONE_TARGET_ALTITUDE])
-
-        p.resetBasePositionAndOrientation(self.CattleCentroidMarker,
-                                            centroid,
-                                            p.getQuaternionFromEuler([0, 0, 0]),
-                                            physicsClientId=self.CLIENT)
-        
-
-        return centroid
-
-    ################################################################################
-        
-    def DroneCentroid(self):
-        """
-
-        Calculates the center of the herd and updates the centorid marker to that location
-
-        """
-        
-        drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
-        drone_positions = drone_states[:, 0:3] 
-
-        centroid_xy = np.mean(drone_positions[:, :2], axis=0)
-        centroid = np.array([centroid_xy[0], centroid_xy[1], self.DRONE_TARGET_ALTITUDE])
-
-        p.resetBasePositionAndOrientation(self.DroneCentroidMarker,
-                                            centroid,
-                                            p.getQuaternionFromEuler([0, 0, 0]),
-                                            physicsClientId=self.CLIENT)
-        
-
-        return centroid
-    
-    ################################################################################
     
     def InteractionForce(self, xi, xj, a, c, d):
         """
-        Computes the interaction force between two 3D positions.
+        Computes the interaction force between two 3D positions. Original Attraction-Repulsion Force - Not Used
 
         Parameters
         ----------
@@ -275,4 +253,26 @@ class CattleAviary(BaseRLAviary):
         denominator = 1 + distance
         force = (numerator / denominator) * delta
         return force
-    
+    ################################################################################
+
+    def SpacingRewardValue(self, r):
+        """
+        Compute Spacing Reward
+            
+        Returns:
+        float
+        """
+        A = self.SPACING_A
+        B = self.SPACING_B
+        c = self.SPACING_C
+        k = self.SPACING_K
+        d = self.SPACING_D
+        r0 = self.SPACING_R0
+        lam = self.SPACING_LAM
+
+        if r <= r0:
+            return A * np.exp(-((r - d)**2) / (2 * c**2)) - B * np.exp(-(r**2) / (2 * k**2))
+        else:
+            fr0 = A * np.exp(-((r0 - d)**2) / (2 * c**2)) - B * np.exp(-(r0**2) / (2 * k**2))
+            C = fr0 / np.exp(-lam * r0)
+            return C * np.exp(-lam * r)
