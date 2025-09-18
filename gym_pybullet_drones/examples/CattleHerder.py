@@ -35,14 +35,14 @@ DEFAULT_RECORD_VIDEO = False
 DEFAULT_OUTPUT_FOLDER = 'models'
 DEFAULT_COLAB = False
 TARGET_REWARD = 99999 #reward to reach to end training
-LOAD_FILE = 'no'#'model-v4-1/best_model.zip' #'model-v3-1' #'save-08.19.2025_15.25.22/best_model.zip'
+LOAD_FILE = 'no'#'model-v4-3/best_model.zip' #'model-v3-1' #'save-08.19.2025_15.25.22/best_model.zip'
 
 DEFAULT_OBS = ObservationType('cokin') #collabrative kinematicsa
 DEFAULT_ACT = ActionType('vel') # 'rpm' or 'pid' or 'vel' or 'one_d_rpm' or 'one_d_pid'
-DEFAULT_DRONES = 4 #number of herding drones
-DEFAULT_CATTLE = 3 #number of cattle to herd
+DEFAULT_DRONES = 10 #number of herding drones - DO NOT EXCEED 10
+DEFAULT_CATTLE = 8 #number of cattle to herd - DO NOT CHANGE
 
-MAX_TIMESTEPS = 3000  #max number of time steps before learning stops
+MAX_TIMESTEPS = 100000  #max number of time steps before learning stops
 EVALUATION_FREQUENCY = 2048 #number of steps to collect before updating policy
 
 EVALUTE_ONLY = False #not used - skips training and replays a saved model
@@ -55,8 +55,9 @@ def run(
         colab=DEFAULT_COLAB, 
         record_video=DEFAULT_RECORD_VIDEO, 
         local=True):
+    
 
-    filename = os.path.join(output_folder, 'model-v4-3')
+    filename = os.path.join(output_folder, 'model-v5-0')
     if not os.path.exists(filename):
         os.makedirs(filename+'/')
 
@@ -148,7 +149,7 @@ def run(
                     colab=colab
                     )
 
-    mean_reward, std_reward = evaluate_policy(model, test_env_nogui, n_eval_episodes=10)
+    mean_reward, std_reward = evaluate_policy(model, test_env_nogui, n_eval_episodes=1)
     print("\n\n\nMean reward ", mean_reward, " +- ", std_reward, "\n\n")
 
     obs, info = test_env.reset(seed=42, options={})

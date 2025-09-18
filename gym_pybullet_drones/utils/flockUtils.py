@@ -3,13 +3,13 @@ import math
 import networkx as nx
 
 # from scipy.spatial import Voronoi
-
+from scipy.spatial import ConvexHull
 import numpy as np
 import gym_pybullet_drones.utils.utils as utils
 from gym_pybullet_drones.utils.mathUtils import MathUtils
 
 class MathematicalFlock(): #Removed Behavior inheritance
-    C1_alpha = 10
+    C1_alpha = 3
     C2_alpha = 2 * np.sqrt(C1_alpha)
     C1_gamma = 5
     C2_gamma = 0.2 * np.sqrt(C1_gamma)
@@ -17,11 +17,11 @@ class MathematicalFlock(): #Removed Behavior inheritance
     C1_beta = 20
     C2_beta = 2 * np.sqrt(C1_beta)
 
-    ALPHA_RANGE = 5
-    ALPHA_DISTANCE = 5
-    ALPHA_ERROR = 1
-    BETA_RANGE = 30
-    BETA_DISTANCE = 30
+    ALPHA_RANGE = 1.2
+    ALPHA_DISTANCE = 1.2
+    ALPHA_ERROR = 0.4
+    BETA_RANGE = 1
+    BETA_DISTANCE = 1
 
     def __init__(self, follow_cursor: bool,
                  sensing_range: float,
@@ -102,7 +102,7 @@ class MathematicalFlock(): #Removed Behavior inheritance
         u = np.zeros((cattle_states.shape[0], 2))
         for idx in range(cattle_states.shape[0]):
             qi = cattle_states[idx, :2]
-            pi = cattle_states[idx, 2:4]
+            pi = cattle_states[idx, 10:12] # velocity
 
             # Group consensus term
             target = self._consensus_pose
@@ -232,37 +232,105 @@ class MathematicalFlock(): #Removed Behavior inheritance
                                             pi=pi)
         return u_gamma
 
+    # def _calc_shepherd_interaction_control(self, idx: int,
+    #                                        drones_idxs: np.ndarray,
+    #                                        delta_adj_matrix: np.ndarray,
+    #                                        cattle_states: np.ndarray,
+    #                                        drone_states: np.ndarray):
+    #     qi = cattle_states[idx, :2]
+    #     pi = cattle_states[idx, 2:4]
+    #     u_delta = np.zeros(2)
+
+    #     if sum(drones_idxs) > 0:
+    #         # Create delta_agent
+    #         delta_in_radius = np.where(delta_adj_matrix[idx] > 0)
+    #         delta_agents = np.array([]).reshape((0, 4))
+    #         for del_idx in delta_in_radius[0]:
+    #             delta_agent = drone_states[del_idx, 0, :3].induce_delta_agent(self._herds[idx])
+    #             delta_agents = np.vstack((delta_agents, delta_agent))
+
+    #         qid = delta_agents[:, :2]
+    #         pid = delta_agents[:, 2:4]
+    #         delta_grad = self._gradient_term(c=MathematicalFlock.C2_beta, qi=qi, qj=qid,
+    #                                          r=MathematicalFlock.BETA_RANGE,
+    #                                          d=MathematicalFlock.BETA_DISTANCE)
+    #         delta_consensus = self._velocity_consensus_term(c=MathematicalFlock.C2_beta,
+    #                                                         qi=qi, qj=qid,
+    #                                                         pi=pi, pj=pid,
+    #                                                         r=MathematicalFlock.BETA_RANGE)
+    #         u_delta = delta_grad + delta_consensus
+
+    #     u_delta += self._predator_avoidance_term(si=qi, r=self._danger_range, k=650000, drone_states=drone_states)
+
+    #     return u_delta
+
     def _calc_shepherd_interaction_control(self, idx: int,
-                                           drones_idxs: np.ndarray,
-                                           delta_adj_matrix: np.ndarray,
-                                           cattle_states: np.ndarray,
-                                           drone_states: np.ndarray):
-        qi = cattle_states[idx, :2]
-        pi = cattle_states[idx, 2:4]
-        u_delta = np.zeros(2)
-        if sum(drones_idxs) > 0:
-            # Create delta_agent
-            delta_in_radius = np.where(delta_adj_matrix[idx] > 0)
-            delta_agents = np.array([]).reshape((0, 4))
-            for del_idx in delta_in_radius[0]:
-                pass
-                # delta_agent = drone_states[del_idx, 0, :3].induce_delta_agent(self._herds[idx])
-                # delta_agents = np.vstack((delta_agents, delta_agent))
+                                       drones_idxs: np.ndarray,
+                                       delta_adj_matrix: np.ndarray,
+                                       cattle_states: np.ndarray,
+                                       drone_states: np.ndarray):
+        """
+        Compute control input on a single cow due to nearby drones.
+        Mimics the behavior of 'induce_delta_agent' using arrays only.
+        """
+        qi = cattle_states[idx, :2]   # cow position
+        pi = cattle_states[idx, 10:12] # velocity
+        u_delta = np.zeros(2)         # initialize control
 
-            qid = delta_agents[:, :2]
-            pid = delta_agents[:, 2:4]
-            delta_grad = self._gradient_term(c=MathematicalFlock.C2_beta, qi=qi, qj=qid,
-                                             r=MathematicalFlock.BETA_RANGE,
-                                             d=MathematicalFlock.BETA_DISTANCE)
-            delta_consensus = self._velocity_consensus_term(c=MathematicalFlock.C2_beta,
-                                                            qi=qi, qj=qid,
-                                                            pi=pi, pj=pid,
-                                                            r=MathematicalFlock.BETA_RANGE)
-            u_delta = delta_grad + delta_consensus
+        # Only compute if any drones are active
+        if np.any(drones_idxs):
+            # Find nearby drones from adjacency matrix
+            delta_in_radius = np.where(delta_adj_matrix[idx] > 0)[0]
 
-        u_delta += self._predator_avoidance_term(si=qi, r=self._danger_range, k=650000, drone_states=drone_states)
+            if len(delta_in_radius) > 0:
+                delta_agents = []
+
+                for d_idx in delta_in_radius:
+                    yk = drone_states[d_idx, :2]  # drone position
+                    pk = drone_states[d_idx, 10:12] 
+
+                    diff = qi - yk
+                    d = np.linalg.norm(diff) + 1e-6  # distance
+
+                    # scaling factor
+                    r = self._r if hasattr(self, "_r") else 1.0
+                    mu = min(d / r, 1.0)  # clipped to [0,1]
+
+                    # unit vector from drone to cow
+                    ak = diff / d
+                    P = np.eye(2) - np.outer(ak, ak)  # project perpendicular
+
+                    # blended position and projected velocity
+                    qik = mu * qi + (1 - mu) * yk
+                    pik = mu * (P @ pi)
+
+                    delta_agents.append(np.hstack((qik, pik)))
+
+                delta_agents = np.array(delta_agents)
+                qid = delta_agents[:, :2]
+                pid = delta_agents[:, 2:4]
+
+                # gradient and consensus terms
+                delta_grad = self._gradient_term(c=MathematicalFlock.C2_beta,
+                                                qi=qi, qj=qid,
+                                                r=MathematicalFlock.BETA_RANGE,
+                                                d=MathematicalFlock.BETA_DISTANCE)
+
+                delta_consensus = self._velocity_consensus_term(c=MathematicalFlock.C2_beta,
+                                                                qi=qi, qj=qid,
+                                                                pi=pi, pj=pid,
+                                                                r=MathematicalFlock.BETA_RANGE)
+
+                u_delta = delta_grad + delta_consensus
+
+        # predator avoidance
+        u_delta += self._predator_avoidance_term(si=qi,
+                                                r=self._danger_range,
+                                                k=650000,
+                                                drone_states=drone_states)
 
         return u_delta
+
 
     def _gradient_term(self, c: float, qi: np.ndarray, qj: np.ndarray, r: float, d: float):
         n_ij = self._get_n_ij(qi, qj)
@@ -295,7 +363,7 @@ class MathematicalFlock(): #Removed Behavior inheritance
         for i in range(len(cattle_states)):
             adj_vec = []
             for delta_agent in drone_states:
-                adj_vec.append(self.in_entity_radius(drone_states[i,: 2], cattle_states[i, :2], r=r))
+                adj_vec.append(self.in_entity_radius(delta_agent[:2], cattle_states[i, :2], r=r))
             adj_matrix = np.vstack((adj_matrix, np.array(adj_vec)))
         return adj_matrix
 
@@ -303,9 +371,9 @@ class MathematicalFlock(): #Removed Behavior inheritance
         r_alpha = MathUtils.sigma_norm([range])
         return MathUtils.bump_function(MathUtils.sigma_norm(q_js-q_i)/r_alpha)
 
-    def in_entity_radius(self, drone_states, qi: np.ndarray, r: float) -> bool:
-        _r = 40
-        return np.linalg.norm(drone_states - qi) <= (r + _r)
+    def in_entity_radius(self, drone_pose, qi: np.ndarray, r: float) -> bool:
+        _r = 2
+        return np.linalg.norm(drone_pose - qi) <= (r + _r)
     
     def _get_n_ij(self, q_i, q_js):
         return MathUtils.sigma_norm_grad(q_js - q_i)
@@ -317,6 +385,75 @@ class MathematicalFlock(): #Removed Behavior inheritance
             w = (1/(1 + k * np.linalg.norm(sij))) * utils.unit_vector(sij)
             w_sum += w
         return w_sum
+
+
+    def compute_drone_on_perimeter(self, cattle_states: np.ndarray, drone_states: np.ndarray,
+                                offset: float = 2.0) -> np.ndarray:
+        """
+        Compute drone control so they attach themselves to the cattle lattice perimeter.
+        - offset: how far outside the hull (positive = outside, negative = inside)
+        Returns Nx2 control vectors for drones.
+        """
+        num_drones = drone_states.shape[0]
+        if num_drones == 0:
+            return np.zeros((0, 2))
+
+        num_cattle = cattle_states.shape[0]
+        if num_cattle == 0:
+            return np.zeros((num_drones, 2))
+
+        points = cattle_states[:, :2]
+
+        # Try convex hull if possible
+        hull_points = None
+        if num_cattle >= 3:
+            try:
+                hull = ConvexHull(points, qhull_options='QJ')  # jiggle to avoid flat simplex
+                hull_points = cattle_states[hull.vertices, :2]
+            except Exception:
+                hull_points = None
+
+        # Fallback if convex hull fails or not enough points
+        if hull_points is None:
+            if num_cattle == 1:
+                # Single point: place all drones in a circle around the cattle
+                center = points[0]
+                angles = np.linspace(0, 2*np.pi, num_drones, endpoint=False)
+                hull_points = np.array([center + offset * np.array([np.cos(a), np.sin(a)]) for a in angles])
+            else:
+                # Two or degenerate points: interpolate linearly between min and max
+                x_min, y_min = points.min(axis=0)
+                x_max, y_max = points.max(axis=0)
+                hull_points = np.linspace([x_min, y_min], [x_max, y_max], max(num_drones, 2))
+
+        # Assign drones to hull points (round-robin if more drones than hull points)
+        targets = []
+        center = points.mean(axis=0)
+        for i in range(num_drones):
+            target_idx = i % len(hull_points)
+            direction = hull_points[target_idx] - center
+            norm = np.linalg.norm(direction) + 1e-6
+            direction_unit = direction / norm
+            target = hull_points[target_idx] + offset * direction_unit
+            targets.append(target)
+        targets = np.array(targets)
+
+        # Compute control vectors toward targets
+        u = np.zeros((num_drones, 2))
+        for i in range(num_drones):
+            qi = drone_states[i, :2]      # position
+            pi = drone_states[i, 10:12]     # velocity
+            target = targets[i]
+
+            # Pull to perimeter target
+            u_gamma = -self.C1_gamma * MathUtils.sigma_1(qi - target) - self.C2_gamma * pi
+            u[i] += u_gamma
+
+        # Optional: add drone-to-drone lattice forces
+        # u += self.compute_drone_lattice_forces(drone_states)
+
+        return u, hull_points
+
     
     #REMOVED _pairwise_potentia_vec
     #REMOVED _pairwise_potential_mag

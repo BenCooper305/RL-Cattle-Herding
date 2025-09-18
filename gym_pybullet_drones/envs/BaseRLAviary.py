@@ -70,6 +70,7 @@ class BaseRLAviary(BaseAviary):
         vision_attributes = True if obs == ObservationType.RGB else False
         self.OBS_TYPE = obs
         self.ACT_TYPE = act
+        self.ACTION_SPACE = 4
         #### Create integrated controllers #########################
         if act in [ActionType.PID, ActionType.VEL, ActionType.ONE_D_PID]:
             os.environ['KMP_DUPLICATE_LIB_OK']='True'
@@ -109,10 +110,13 @@ class BaseRLAviary(BaseAviary):
         """
         if self.ACT_TYPE in [ActionType.RPM, ActionType.VEL]:
             size = 4
+            self.ACTION_SPACE = 4
         elif self.ACT_TYPE==ActionType.PID:
             size = 3
+            self.ACTION_SPACE = 3
         elif self.ACT_TYPE in [ActionType.ONE_D_RPM, ActionType.ONE_D_PID]:
             size = 1
+            self.ACTION_SPACE = 1
         else:
             print("[ERROR] in BaseRLAviary._actionSpace()")
             exit()
@@ -155,7 +159,7 @@ class BaseRLAviary(BaseAviary):
         """
         self.action_buffer.append(action)
         rpm = np.zeros((self.NUM_DRONES,4))
-        for k in range(action.shape[0]):
+        for k in range(self.NUM_DRONES):
             target = action[k, :]
             if self.ACT_TYPE == ActionType.RPM:
                 rpm[k,:] = np.array(self.HOVER_RPM * (1+0.05*target))
@@ -231,84 +235,162 @@ class BaseRLAviary(BaseAviary):
 
 
     ################################################################################
+    # def _observationSpace(self):
+    #     """Returns the observation space of the environment.
 
+    #     Returns
+    #     -------
+    #     ndarray
+    #         A Box() of shape (NUM_DRONES,H,W,4) or (NUM_DRONES,12) depending on the observation type.
+
+    #     """
+    #     if self.OBS_TYPE != ObservationType.COKIN:
+    #         print("[ERROR] in BaseRLAviary._observationSpace()")
+    #         return None
+        
+
+    #     ############################################################
+    #     #### OBS SPACE OF SIZE 12
+    #     #### Observation vector ### X        Y        Z       Q1   Q2   Q3   Q4   R       P       Y       VX       VY       VZ       WX       WY       WZ
+    #     # lo = -np.inf
+    #     # hi = np.inf
+    #     # obs_lower_bound = np.array([[lo,lo,0, lo,lo,lo,lo,lo,lo,lo,lo,lo, 0] for i in range(self.NUM_DRONES)])
+    #     # obs_upper_bound = np.array([[hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi, hi] for i in range(self.NUM_DRONES)])
+
+    #     ###########################################################
+    #     ### Add drone–drone distances (NUM_DRONES - 1 per drone)
+    #     ### Distances are always >= 0
+
+    #     # Absolute positions of other drones (exclude self)
+    #     # drone_abs_lo = np.zeros((self.NUM_DRONES, (self.NUM_DRONES-1) * 2))
+    #     # drone_abs_hi = np.full((self.NUM_DRONES, (self.NUM_DRONES-1) * 2), hi)
+
+    #     # # Relative positions of other drones (exclude self)
+    #     # drone_rel_lo = np.zeros((self.NUM_DRONES, (self.NUM_DRONES-1) * 2))
+    #     # drone_rel_hi = np.full((self.NUM_DRONES, (self.NUM_DRONES-1) * 2), hi)
+
+    #     # # Combine absolute + relative
+    #     # obs_lower_bound = np.hstack([obs_lower_bound, drone_abs_lo, drone_rel_lo])
+    #     # obs_upper_bound = np.hstack([obs_upper_bound, drone_abs_hi, drone_rel_hi])
+
+    #     # ############################################################
+    #     # #### Add drone–cattle distances (NUM_CATTLE per drone)
+    #     # # Absolute cow positions
+    #     # cattle_abs_lo = -np.inf * np.ones((self.NUM_DRONES, self.NUM_CATTLE * 2))
+    #     # cattle_abs_hi = +np.inf * np.ones((self.NUM_DRONES, self.NUM_CATTLE * 2))
+
+    #     # # Relative cow positions (existing)
+    #     # cattle_rel_lo = np.zeros((self.NUM_DRONES, self.NUM_CATTLE * 2))
+    #     # cattle_rel_hi = np.full((self.NUM_DRONES, self.NUM_CATTLE * 2), hi)
+
+    #     # # Combine absolute + relative
+    #     # obs_lower_bound = np.hstack([obs_lower_bound, cattle_abs_lo, cattle_rel_lo])
+    #     # obs_upper_bound = np.hstack([obs_upper_bound, cattle_abs_hi, cattle_rel_hi])
+
+    #     # #### Add action buffer to observation space ################
+    #     # act_lo = -1
+    #     # act_hi = +1
+    #     # for i in range(self.ACTION_BUFFER_SIZE):
+    #     #     if self.ACT_TYPE in [ActionType.RPM, ActionType.VEL]:
+    #     #         obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo,act_lo,act_lo,act_lo] for i in range(self.NUM_DRONES)])])
+    #     #         obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi,act_hi,act_hi,act_hi] for i in range(self.NUM_DRONES)])])
+    #     #     elif self.ACT_TYPE==ActionType.PID:
+    #     #         obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo,act_lo,act_lo] for i in range(self.NUM_DRONES)])])
+    #     #         obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi,act_hi,act_hi] for i in range(self.NUM_DRONES)])])
+
+    #     ############################################################  
+    #     return spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32)
+    
     def _observationSpace(self):
         """Returns the observation space of the environment.
 
         Returns
         -------
-        ndarray
-            A Box() of shape (NUM_DRONES,H,W,4) or (NUM_DRONES,12) depending on the observation type.
-
+        gym.spaces.Box
+            A Box() of shape (MAX_NUM_DRONES, obs_length), where obs_length depends on observation type.
         """
-        if self.OBS_TYPE == ObservationType.COKIN:
-            ############################################################
-            #### OBS SPACE OF SIZE 12
-            #### Observation vector ### X        Y        Z       Q1   Q2   Q3   Q4   R       P       Y       VX       VY       VZ       WX       WY       WZ delta_alt
-            lo = -np.inf
-            hi = np.inf
-            obs_lower_bound = np.array([[lo,lo,0, lo,lo,lo,lo,lo,lo,lo,lo,lo, 0] for i in range(self.NUM_DRONES)])
-            obs_upper_bound = np.array([[hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi, hi] for i in range(self.NUM_DRONES)])
-
-            ###########################################################
-            ### Add drone–drone distances (NUM_DRONES - 1 per drone)
-            ### Distances are always >= 0
-
-            # Absolute positions of other drones (exclude self)
-            drone_abs_lo = np.zeros((self.NUM_DRONES, (self.NUM_DRONES-1) * 2))
-            drone_abs_hi = np.full((self.NUM_DRONES, (self.NUM_DRONES-1) * 2), hi)
-
-            # Relative positions of other drones (exclude self)
-            drone_rel_lo = np.zeros((self.NUM_DRONES, (self.NUM_DRONES-1) * 2))
-            drone_rel_hi = np.full((self.NUM_DRONES, (self.NUM_DRONES-1) * 2), hi)
-
-            # Combine absolute + relative
-            obs_lower_bound = np.hstack([obs_lower_bound, drone_abs_lo, drone_rel_lo])
-            obs_upper_bound = np.hstack([obs_upper_bound, drone_abs_hi, drone_rel_hi])
-
-            ############################################################
-            #### Add drone–cattle distances (NUM_CATTLE per drone)
-            # Absolute cow positions
-            cattle_abs_lo = -np.inf * np.ones((self.NUM_DRONES, self.NUM_CATTLE * 2))
-            cattle_abs_hi = +np.inf * np.ones((self.NUM_DRONES, self.NUM_CATTLE * 2))
-
-            # Relative cow positions (existing)
-            cattle_rel_lo = np.zeros((self.NUM_DRONES, self.NUM_CATTLE * 2))
-            cattle_rel_hi = np.full((self.NUM_DRONES, self.NUM_CATTLE * 2), hi)
-
-            # Combine absolute + relative
-            obs_lower_bound = np.hstack([obs_lower_bound, cattle_abs_lo, cattle_rel_lo])
-            obs_upper_bound = np.hstack([obs_upper_bound, cattle_abs_hi, cattle_rel_hi])
-
-            #### Add action buffer to observation space ################
-            act_lo = -1
-            act_hi = +1
-            for i in range(self.ACTION_BUFFER_SIZE):
-                if self.ACT_TYPE in [ActionType.RPM, ActionType.VEL]:
-                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo,act_lo,act_lo,act_lo] for i in range(self.NUM_DRONES)])])
-                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi,act_hi,act_hi,act_hi] for i in range(self.NUM_DRONES)])])
-                elif self.ACT_TYPE==ActionType.PID:
-                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo,act_lo,act_lo] for i in range(self.NUM_DRONES)])])
-                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi,act_hi,act_hi] for i in range(self.NUM_DRONES)])])
-
-            ############################################################  
-            return spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32)
-            
-        else:
+        if self.OBS_TYPE != ObservationType.COKIN:
             print("[ERROR] in BaseRLAviary._observationSpace()")
+            return None
+        
+        lo = -np.inf
+        hi = np.inf
+
+        # Own state vector: x, y, z + roll, pitch, yaw + linear vel + angular vel
+        own_state_len = 3 + 3 + 3 + 3  # 12
+
+        # Total observation length: own state + neighbors + nearby cattle + action buffer
+        obs_len = own_state_len + self.MAX_NEIGHBORS * 2 + self.MAX_NEARBY_CATTLE * 2 + self.ACTION_BUFFER_SIZE * self.ACTION_SPACE
+
+        obs_lower_bound = np.full((self.MAX_NUM_DRONES, obs_len), lo, dtype=np.float32)
+        obs_upper_bound = np.full((self.MAX_NUM_DRONES, obs_len), hi, dtype=np.float32)
+
+        return spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32)
+
 
     ################################################################################
 
-    def _computeObs(self):
-        """Returns the current observations of all drones in the environment.
+    # def _computeObs(self):
+    #     """Returns the current observations of all drones in the environment.
 
-        Returns
-        -------
-        ndarray
-            Observation array of shape (NUM_DRONES, obs_length), where obs_length depends on OBS_TYPE,
-            including drone state, relative positions to other drones, absolute and relative positions to cows, 
-            relative vector to centroid, and action buffer.
-        """
+    #     Returns
+    #     -------
+    #     ndarray
+    #         Observation array of shape (NUM_DRONES, obs_length), where obs_length depends on OBS_TYPE,
+    #         including drone state, relative positions to other drones, absolute and relative positions to cows, 
+    #         relative vector to centroid, and action buffer.
+    #     """
+    #     if self.OBS_TYPE != ObservationType.COKIN:
+    #         print("[ERROR] in BaseRLAviary._computeObs()")
+    #         return None
+
+    #     N = self.NUM_DRONES
+    #     M = self.NUM_CATTLE
+
+    #     ret_list = []
+
+    #     for i in range(N):
+    #         #### Add drone state #######################
+    #         obs_vec = self._getDroneStateVector(i)
+    #         drone_pos = obs_vec[0:3]
+    #         delta_alt = drone_pos[2] - self.DRONE_TARGET_ALTITUDE
+    #         obs_i = list(np.hstack([
+    #             drone_pos,            # position (x, y, z)
+    #             obs_vec[7:10],        # roll, pitch, yaw (RPY)
+    #             obs_vec[10:13],       # linear velocity (vx, vy, vz)
+    #             obs_vec[13:16],        # angular velocity (wx, wy, wz)
+    #             delta_alt               #distance from altitude
+    #         ]))
+
+    #         # #### Add drone to drone relative positions #######################
+    #         for j in range(N):
+    #             if i == j:
+    #                 continue
+    #             other_drone_pos = self._getDroneStateVector(j)[0:2] #xy only
+    #             rel_pos = other_drone_pos - drone_pos[0:2] #xy pos only
+    #             obs_i.extend(other_drone_pos)
+    #             obs_i.extend(rel_pos)
+
+    #         #### Add absolute and relative cow positions #######################
+    #         for j in range(M):
+    #             cow_pos = self._getCowStateVector(j)[0:2] #xy only
+    #             rel_pos = cow_pos - drone_pos[0:2] #xy pos only
+    #             obs_i.extend(cow_pos)   # absolute position
+    #             obs_i.extend(rel_pos)   # relative to drone
+    #          ### Add absolute and relative cow positions #######################
+
+    #         #### Add action buffer to observation #######################
+    #         for k in range(self.ACTION_BUFFER_SIZE):
+    #             obs_i.extend(self.action_buffer[k][i, :])
+
+    #         ret_list.append(obs_i)
+
+    #     ret = np.array(ret_list, dtype='float32')
+    #     return ret
+
+    def _computeObs(self):
+        """Returns the current observations of all drones, padded to MAX_NUM_DRONES (decentralized)."""
+
         if self.OBS_TYPE != ObservationType.COKIN:
             print("[ERROR] in BaseRLAviary._computeObs()")
             return None
@@ -316,45 +398,64 @@ class BaseRLAviary(BaseAviary):
         N = self.NUM_DRONES
         M = self.NUM_CATTLE
 
-        ret_list = []
+        # Determine the length of each drone's observation
+        obs_len_per_drone = 12 + self.MAX_NEIGHBORS*2 + self.MAX_NEARBY_CATTLE*2 + self.ACTION_BUFFER_SIZE * self.ACTION_SPACE
+
+        # Pre-allocate full observation array with zeros
+        obs = np.zeros((self.MAX_NUM_DRONES, obs_len_per_drone), dtype=np.float32)
+
+        obs_dim = obs.shape[1]
 
         for i in range(N):
-            #### Add drone state #######################
             obs_vec = self._getDroneStateVector(i)
             drone_pos = obs_vec[0:3]
-            delta_alt = drone_pos[2] - self.DRONE_TARGET_ALTITUDE
+
+            # Own state: position, RPY, linear vel, angular vel
             obs_i = list(np.hstack([
-                drone_pos,            # position (x, y, z)
-                obs_vec[7:10],        # roll, pitch, yaw (RPY)
-                obs_vec[10:13],       # linear velocity (vx, vy, vz)
-                obs_vec[13:16],        # angular velocity (wx, wy, wz)
-                delta_alt               #distance from altitude
+                drone_pos,            # x, y, z
+                obs_vec[7:10],        # roll, pitch, yaw
+                obs_vec[10:13],       # linear velocity vx, vy, vz
+                obs_vec[13:16],       # angular velocity wx, wy, wz
             ]))
 
-            # #### Add drone to drone relative positions #######################
+            # Relative positions of nearby drones
+            rel_neighbors = []
             for j in range(N):
                 if i == j:
                     continue
-                other_drone_pos = self._getDroneStateVector(j)[0:2] #xy only
-                rel_pos = other_drone_pos - drone_pos[0:2] #xy pos only
-                obs_i.extend(other_drone_pos)
-                obs_i.extend(rel_pos)
+                other_pos = self._getDroneStateVector(j)[0:2]  # x, y only
+                rel_neighbors.append(other_pos - drone_pos[0:2])
+            while len(rel_neighbors) < self.MAX_NEIGHBORS:
+                rel_neighbors.append(np.zeros(2))
+            rel_neighbors = np.array(rel_neighbors[:self.MAX_NEIGHBORS]).flatten()
+            obs_i.extend(rel_neighbors)
 
-            #### Add absolute and relative cow positions #######################
+            # Relative positions of nearby cattle
+            rel_cattle = []
             for j in range(M):
-                cow_pos = self._getCowStateVector(j)[0:2] #xy only
-                rel_pos = cow_pos - drone_pos[0:2] #xy pos only
-                obs_i.extend(cow_pos)   # absolute position
-                obs_i.extend(rel_pos)   # relative to drone
+                cow_pos = self._getCowStateVector(j)[0:2]
+                rel_cattle.append(cow_pos - drone_pos[0:2])
+            while len(rel_cattle) < self.MAX_NEARBY_CATTLE:
+                rel_cattle.append(np.zeros(2))
+            rel_cattle = np.array(rel_cattle[:self.MAX_NEARBY_CATTLE]).flatten()
+            obs_i.extend(rel_cattle)
 
-            #### Add action buffer to observation #######################
+            # Action buffer
             for k in range(self.ACTION_BUFFER_SIZE):
                 obs_i.extend(self.action_buffer[k][i, :])
 
-            ret_list.append(obs_i)
+            # Truncate/pad to obs_dim
+            obs_i_array = np.array(obs_i, dtype=np.float32)
+            if len(obs_i_array) > obs_dim:
+                obs_i_array = obs_i_array[:obs_dim]
+            elif len(obs_i_array) < obs_dim:
+                obs_i_array = np.pad(obs_i_array, (0, obs_dim - len(obs_i_array)), 'constant')
 
-        ret = np.array(ret_list, dtype='float32')
-        return ret
+            obs[i, :] = obs_i_array
+
+        return obs
+
+
 
     ################################################################################  
     
