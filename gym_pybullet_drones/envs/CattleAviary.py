@@ -184,16 +184,13 @@ class CattleAviary(BaseRLAviary):
     ################################################################################
     
     def _computeTerminated(self):
-        """Computes the current done value.
-
-        Returns
-        ------- 
-        bool
-            Whether the current episode is done.
-
-        """
-        hull_points = np.array(self.get_hull_positions())[:, :2]  # (H,2)
-        drone_positions = np.array([self._getDroneStateVector(i)[0:2] for i in range(self.NUM_DRONES)])  # (N,2)
+        """Computes the current done value."""
+        hull_points = np.array(self.get_hull_positions())
+        if hull_points.size == 0:
+            return False  # or True, depending on what "done" means when no hull exists
+        
+        hull_points = hull_points[:, :2]  # (H,2)
+        drone_positions = np.array([self._getDroneStateVector(i)[:2] for i in range(self.NUM_DRONES)])  # (N,2)
 
         # Compute distance matrix
         dist_matrix = np.linalg.norm(hull_points[:, None, :] - drone_positions[None, :, :], axis=-1)

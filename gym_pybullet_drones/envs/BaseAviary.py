@@ -1,22 +1,23 @@
 import os
-from sys import platform
 import time
 import yaml
+import pickle
 import random
 import collections
-from datetime import datetime
-import xml.etree.ElementTree as etxml
-import pkg_resources
-from PIL import Image
-# import pkgutil
-# egl = pkgutil.get_loader('eglRenderer')
 import numpy as np
-import pybullet as p
+import pkg_resources
 import pybullet_data
+import pybullet as p
 import gymnasium as gym
+import xml.etree.ElementTree as etxml
+import gym_pybullet_drones.utils.utils as utils
+
+from PIL import Image
+from sys import platform
+from datetime import datetime
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ImageType
 from gym_pybullet_drones.utils.flockUtils import MathematicalFlock
-import gym_pybullet_drones.utils.utils as utils
+
 
 
 class BaseAviary(gym.Env, MathematicalFlock):
@@ -115,6 +116,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self.INIT_XYZS = np.zeros((self.MAX_NUM_DRONES, 3))
         self.INIT_RPYS = np.zeros((self.MAX_NUM_DRONES, 3))
         self.Cattle_Spawn_Index = 0
+        self.is_evaluating = False
         #### Evaluation Metrics ####################################
         self.total_drone_distances = [] #array of arrays with elemnts of each drones total distacne travlled per episode
         self.total_time_taken = [] #array of time take for each simulation
@@ -263,7 +265,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
             in each subclass for its format.
 
         """
-        self.step_counter = 0
+        self.step_counter_A = 0
         self.NUM_DRONES = random.randint(self.MIN_NUM_DRONES, self.MAX_NUM_DRONES)
         #### Create action and observation spaces ##################
         self.action_space = self._actionSpace()
@@ -326,7 +328,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
             in each subclass for its format.
 
         """
-        self.step_counter += 1
+        self.step_counter_A += 1
 
         #### Save PNG video frames if RECORD=True and GUI=False ####
         if self.RECORD and not self.GUI and self.step_counter%self.CAPTURE_FREQ == 0:
@@ -464,6 +466,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         if self.RECORD and self.GUI:
             p.stopStateLogging(self.VIDEO_ID, physicsClientId=self.CLIENT)
         p.disconnect(physicsClientId=self.CLIENT)
+        self.append_evaluation_data()
 
     ################################################################################
 
@@ -518,7 +521,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
 
         #### Initialize/reset counters and zero-valued variables ###
         self.RESET_TIME = time.time()
-        self.step_counter = 0
+        self.step_counter_A = 0
         self.first_render_call = True
         self.X_AX = -1*np.ones(self.NUM_DRONES)
         self.Y_AX = -1*np.ones(self.NUM_DRONES)
@@ -1276,8 +1279,8 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self._flocking_condition = True
         self._dt = 0.2
         self._dt_sqr = 0.1
-        self.maxVelCattle = 0.7
-        self.maxVelDrone = 0.7
+        self.maxVelCattle = 0.4
+        self.maxVelDrone = 0.4
 
         self._boundary = {
             'x_min': 300,
@@ -1342,18 +1345,19 @@ class BaseAviary(gym.Env, MathematicalFlock):
                                 angularVelocity=angular_vel,
                                 physicsClientId=self.CLIENT)
             
-        # for idx in range(self.NUM_DRONES):
-        #     speed = np.linalg.norm(drone_states[idx, 10:12])
-        #     if speed > self.maxVelDrone:
-        #         drone_states[idx, 10:12] = self.maxVelDrone * (drone_states[idx, 10:12] / speed)
+        for idx in range(self.NUM_DRONES):
+            speed = np.linalg.norm(drone_states[idx, 10:12])
+            if speed > self.maxVelDrone:
+                drone_states[idx, 10:12] = self.maxVelDrone * (drone_states[idx, 10:12] / speed)
             
-        # for idx, drone_id in enumerate(self.DRONE_IDS):
-        #     linear_vel = np.hstack([drone_states[idx, 10:12], 0.18])  # x,y, z=0
-        #     angular_vel = [0.0, 0.0, 0.0]
-        #     p.resetBaseVelocity(drone_id,
-        #                         linearVelocity=linear_vel,
-        #                         angularVelocity=angular_vel,
-        #                         physicsClientId=self.CLIENT)
+        for idx, drone_id in enumerate(self.DRONE_IDS):
+            linear_vel = np.hstack([drone_states[idx, 10:12], 0.18])  # x,y, z=0
+            linear_vel * 0.1
+            angular_vel = [0.0, 0.0, 0.0]
+            p.resetBaseVelocity(drone_id,
+                                linearVelocity=linear_vel,
+                                angularVelocity=angular_vel,
+                                physicsClientId=self.CLIENT)
     #######################################################################
     def get_hull_positions(self):
         return self.hullMarkerPositions
@@ -1452,7 +1456,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
             self.last_drones_pos[drone_idx] = current_pos
 
     #######################################################################
-    def append_evaluation_data(self):
+    def append_evaluation_data(self, save_path="evaluation_data.pkl"):
         """
         Called at the end of an episode to save episode evalution data
         """
@@ -1461,3 +1465,15 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self.total_number_of_drones.append(self.NUM_DRONES)
         self.total_time_taken.append(self.step_counter / self.PYB_FREQ)
         self.total_effectiveness.append(0)  # Or compute actual effectiveness here
+
+        eval_data = {
+            "distances": self.total_drone_distances,
+            "num_drones": self.total_number_of_drones,
+            "time_taken": self.total_time_taken,
+            "effectiveness": self.total_effectiveness,
+        }
+
+        with open(save_path, "wb") as f:
+            pickle.dump(eval_data, f)
+
+        print(f"Evaluation data saved to {os.path.abspath(save_path)}")
