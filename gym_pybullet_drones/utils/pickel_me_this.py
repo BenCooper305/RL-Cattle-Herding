@@ -2,7 +2,7 @@ import pickle
 import os
 import matplotlib.pyplot as plt
 
-def load_eval_data(path="evaluation_data copy.pkl"):
+def load_eval_data(path):
     if not os.path.exists(path):
         raise FileNotFoundError(f"File not found: {path}")
 
@@ -54,14 +54,8 @@ def plot_eval_data(data):
     plt.show()
 
 if __name__ == "__main__":
-    data = load_eval_data("evaluation_data.pkl")
+    data = load_eval_data("evaluation_data 5-10.pkl")
     print("Keys in data:", list(data.keys()))
     print("Number of episodes:", len(data["time_taken"]))
-
-    data = load_eval_data("evaluation_data.pkl")
-    for k, v in data.items():
-        print(f"{k}: type={type(v)}, length={len(v) if hasattr(v, '__len__') else 'N/A'}")
-        if len(v) > 0:
-            print(f"  first element type={type(v[0])}, value={v[0]}")
 
     plot_eval_data(data)

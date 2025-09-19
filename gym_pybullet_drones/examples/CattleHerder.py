@@ -36,14 +36,14 @@ DEFAULT_RECORD_VIDEO = False
 DEFAULT_OUTPUT_FOLDER = 'models'
 DEFAULT_COLAB = False
 TARGET_REWARD = 99999 #reward to reach to end training
-LOAD_FILE = 'model-v5-9/best_model.zip' #'model-v3-1' #'save-08.19.2025_15.25.22/best_model.zip'
+LOAD_FILE = 'model-v6-2/best_model.zip' #'model-v3-1' #'save-08.19.2025_15.25.22/best_model.zip'
 
 DEFAULT_OBS = ObservationType('cokin') #collabrative kinematicsa
 DEFAULT_ACT = ActionType('vel') # 'rpm' or 'pid' or 'vel' or 'one_d_rpm' or 'one_d_pid'
 DEFAULT_DRONES = 10 #number of herding drones - DO NOT EXCEED 10
 DEFAULT_CATTLE = 8 #number of cattle to herd - DO NOT CHANGE
 
-MAX_TIMESTEPS = 800000  #max number of time steps before learning stops
+MAX_TIMESTEPS = 4000000  #max number of time steps before learning stops
 EVALUATION_FREQUENCY = 2048 #number of steps to collect before updating policy
 
 EVALUTE_ONLY = False #not used - skips training and replays a saved model
@@ -58,7 +58,7 @@ def run(
         local=True):
     
 
-    filename = os.path.join(output_folder, 'model-v5-10')
+    filename = os.path.join(output_folder, 'model-v6-3')
     if not os.path.exists(filename):
         os.makedirs(filename+'/')
 
