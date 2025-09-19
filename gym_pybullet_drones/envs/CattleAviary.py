@@ -86,7 +86,7 @@ class CattleAviary(BaseRLAviary):
         self.SPACING_R0 = 1.25 #piecewise threshold
         self.SPACING_LAM = 0.7 #exp decay
 
-        self.MAX_ALT_ERROR = self.DRONE_TARGET_ALTITUDE * 0.2
+        self.MAX_ALT_ERROR = self.DRONE_TARGET_ALTITUDE * 0.3
 
         self.REWARD_WEIGHTS = dict(drone_hull_distance=1, 
                                    drone_hull_approach=0.8, 
@@ -119,9 +119,11 @@ class CattleAviary(BaseRLAviary):
 
         #### Reward for centroids moving in right direction ####
         centroid_approach_reward = 0.0
-        dir_to_cattle = cattle_centroid - pos[:, :2]                 # 2D direction
+        dir_to_cattle = cattle_centroid[:2] - pos[:, :2]  # (NUM_DRONES, 2)
+        dists_to_cattle = np.linalg.norm(dir_to_cattle, axis=1)
         dir_unit = np.where(dists_to_cattle[:, None] > 0, dir_to_cattle / dists_to_cattle[:, None], 0.0)
         centroid_approach_reward = np.mean(np.sum(vel[:, :2] * dir_unit, axis=1)) / (self.MAX_VEL + 1e-6)
+
 
         #### Reward for each drone spacing ####
         drone_spacing_reward = 0.0
@@ -219,7 +221,10 @@ class CattleAviary(BaseRLAviary):
             pitch = states[i][8]
             if abs(roll) > 0.5 or abs(pitch) > 0.5:
                 return True
-            
+
+        z = states[i][2]
+        if abs(z - self.DRONE_TARGET_ALTITUDE) > self.MAX_ALT_ERROR:
+            return True       
     
         # --- Episode timeout ---
         if self.step_counter / self.PYB_FREQ > self.EPISODE_LEN_SEC:
