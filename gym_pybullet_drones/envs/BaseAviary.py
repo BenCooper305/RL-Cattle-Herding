@@ -381,6 +381,11 @@ class BaseAviary(gym.Env, MathematicalFlock):
         #### Save, preprocess, and clip the action to the max. RPM #
         else:
             clipped_action = np.reshape(self._preprocessAction(action), (self.NUM_DRONES, 4))
+                    #### flocking vel #######################
+            # if self.step_counter % 2 == 0:
+            #     flock_vel = self._flockingStep()                     # shape (NUM_DRONES, 3)
+            #     flock_vel = np.hstack([flock_vel, np.zeros((self.NUM_DRONES, 1))])  # now (NUM_DRONES, 4)
+            #     clipped_action = 0.7 * clipped_action + 0.3 * flock_vel
         #### Repeat for as many as the aggregate physics steps #####
         for _ in range(self.PYB_STEPS_PER_CTRL):
             #### Update and store the drones kinematic info for certain
@@ -415,15 +420,14 @@ class BaseAviary(gym.Env, MathematicalFlock):
         #### Update and store the drones kinematic information #####
         self._updateAndStoreKinematicInformation()
         #### Update the flocking ##############################
-        if self.step_counter % 2 == 0:
-            self._flockingStep()
+        if self.step_counter_A % 2 == 0:
+            flock_vel = self._flockingStep() 
         #### Prepare the return values #############################
         obs = self._computeObs()
         reward = self._computeReward()
         terminated = self._computeTerminated()
         truncated = self._computeTruncated()
-        info = self._computeInfo()
-
+        info = self._computeInfo() 
         self.update_evaultion_metrics()
         #### Advance the step counter ##############################
         self.step_counter = self.step_counter + (1 * self.PYB_STEPS_PER_CTRL)
@@ -589,6 +593,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
                                     [0,0,-999],
                                     p.getQuaternionFromEuler([0,0,0]),
                                     globalScaling=0.2,
+                                    useFixedBase=True,
                                     physicsClientId=self.CLIENT
                                     ))
         
@@ -596,6 +601,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
                                 [0,0,-999],
                                 p.getQuaternionFromEuler([0,0,0]),
                                 globalScaling=0.1,
+                                useFixedBase=True,
                                 physicsClientId=self.CLIENT
                                 ))
         
@@ -603,6 +609,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
                             [7,-5,1.2],
                             p.getQuaternionFromEuler([0,0,0]),
                             globalScaling=0.2,
+                            useFixedBase=True,
                             physicsClientId=self.CLIENT
                             ))
 
@@ -1279,8 +1286,8 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self._flocking_condition = True
         self._dt = 0.2
         self._dt_sqr = 0.1
-        self.maxVelCattle = 0.4
-        self.maxVelDrone = 0.4
+        self.maxVelCattle = 0.6
+        self.maxVelDrone = 0.6
 
         self._boundary = {
             'x_min': 300,
@@ -1350,14 +1357,13 @@ class BaseAviary(gym.Env, MathematicalFlock):
             if speed > self.maxVelDrone:
                 drone_states[idx, 10:12] = self.maxVelDrone * (drone_states[idx, 10:12] / speed)
             
+        flock_vels = []
         for idx, drone_id in enumerate(self.DRONE_IDS):
-            linear_vel = np.hstack([drone_states[idx, 10:12], 0.18])  # x,y, z=0
-            linear_vel * 0.1
-            angular_vel = [0.0, 0.0, 0.0]
-            p.resetBaseVelocity(drone_id,
-                                linearVelocity=linear_vel,
-                                angularVelocity=angular_vel,
-                                physicsClientId=self.CLIENT)
+            linear_vel = np.hstack([drone_states[idx, 10:12], 0])  # (x, y, 0)
+            flock_vels.append(linear_vel)
+
+        return np.array(flock_vels)   # shape (NUM_DRONES, 3)
+    
     #######################################################################
     def get_hull_positions(self):
         return self.hullMarkerPositions
@@ -1411,6 +1417,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
                 [0, 0, -10],  # initially hide new markers below ground
                 p.getQuaternionFromEuler([0, 0, 0]),
                 globalScaling=0.05,
+                useFixedBase=True,
                 physicsClientId=self.CLIENT
             )
             if marker_id < 0:
