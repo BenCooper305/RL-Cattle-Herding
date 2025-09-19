@@ -116,6 +116,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self.INIT_XYZS = np.zeros((self.MAX_NUM_DRONES, 3))
         self.INIT_RPYS = np.zeros((self.MAX_NUM_DRONES, 3))
         self.Cattle_Spawn_Index = 0
+        self.step_counter_A = 0
         self.is_evaluating = False
         #### Evaluation Metrics ####################################
         self.total_drone_distances = [] #array of arrays with elemnts of each drones total distacne travlled per episode
@@ -265,6 +266,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
             in each subclass for its format.
 
         """
+        # print(f"NEW EPISODE, last episode has {self.step_counter_A} steps")
         self.step_counter_A = 0
         self.NUM_DRONES = random.randint(self.MIN_NUM_DRONES, self.MAX_NUM_DRONES)
         #### Create action and observation spaces ##################
@@ -274,7 +276,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
 
         #### Set initial poses #####################################
         self.INIT_XYZS = np.array([
-            [j*4*self.L + 0.1, j*4*self.L + 0.1, self.DRONE_TARGET_ALTITUDE]
+            [j*4*self.L + 0.2, j*4*self.L + 0.2, self.DRONE_TARGET_ALTITUDE]
             for j in range(self.NUM_DRONES)
         ])
         self.INIT_RPYS = np.zeros((self.NUM_DRONES, 3))
@@ -470,7 +472,6 @@ class BaseAviary(gym.Env, MathematicalFlock):
         if self.RECORD and self.GUI:
             p.stopStateLogging(self.VIDEO_ID, physicsClientId=self.CLIENT)
         p.disconnect(physicsClientId=self.CLIENT)
-        self.append_evaluation_data()
 
     ################################################################################
 
@@ -525,7 +526,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
 
         #### Initialize/reset counters and zero-valued variables ###
         self.RESET_TIME = time.time()
-        self.step_counter_A = 0
+        self.step_counter = 0
         self.first_render_call = True
         self.X_AX = -1*np.ones(self.NUM_DRONES)
         self.Y_AX = -1*np.ones(self.NUM_DRONES)
@@ -1463,16 +1464,34 @@ class BaseAviary(gym.Env, MathematicalFlock):
             self.last_drones_pos[drone_idx] = current_pos
 
     #######################################################################
-    def append_evaluation_data(self, save_path="evaluation_data.pkl"):
+    def append_evaluation_data(self):
         """
         Called at the end of an episode to save episode evalution data
         """
-        print(f"Saved Evaluation Data, epiosde length was {self.step_counter / self.PYB_FREQ}")
+        print("Episode Ended - Appending Data")
+        print(f"Data appneded: {self.episode_drone_distances}, {self.NUM_DRONES}, {self.step_counter / self.PYB_FREQ}, {self.calculate_effectiveness()}")
         self.total_drone_distances.append(self.episode_drone_distances)
         self.total_number_of_drones.append(self.NUM_DRONES)
         self.total_time_taken.append(self.step_counter / self.PYB_FREQ)
-        self.total_effectiveness.append(0)  # Or compute actual effectiveness here
+        self.total_effectiveness.append(self.calculate_effectiveness())  # Or compute actual effectiveness here
 
+
+    def save_evaluation_data(self, save_path="evaluation_data.pkl"):
+
+        print(f"Number of episodes collected: {len(self.total_time_taken)}")
+        print(f"Distances list length: {len(self.total_drone_distances)}")
+        print(f"Number of drones list length: {len(self.total_number_of_drones)}")
+        print(f"Effectiveness list length: {len(self.total_effectiveness)}")
+
+        # Optionally, print the first few entries for a quick check
+        if len(self.total_time_taken) > 0:
+            print(f"First episode data:")
+            print(f"  Time taken: {self.total_time_taken[0]}")
+            print(f"  Num drones: {self.total_number_of_drones[0]}")
+            print(f"  Effectiveness: {self.total_effectiveness[0]}")
+            print(f"  Drone distances: {self.total_drone_distances[0]}")
+
+        print("Evaulation Completed - Saving Evaulation Data")
         eval_data = {
             "distances": self.total_drone_distances,
             "num_drones": self.total_number_of_drones,
@@ -1484,3 +1503,36 @@ class BaseAviary(gym.Env, MathematicalFlock):
             pickle.dump(eval_data, f)
 
         print(f"Evaluation data saved to {os.path.abspath(save_path)}")
+
+    def calculate_effectiveness(self):
+        total_herded_cattle = 0
+        polygon = self.get_hull_positions()
+        for cow_idx in range(self.NUM_CATTLE):
+            point = self._getCowStateVector(cow_idx)[0:2]
+
+            wn = 0
+            px, py = point
+            n = len(polygon)
+
+            for i in range(n):
+                x1, y1, z1 = polygon[i]
+                x2, y2, z2 = polygon[(i + 1) % n]
+
+                if y1 <= py:
+                    if y2 > py and self.is_left((x1, y1), (x2, y2), (px, py)) > 0:
+                        wn += 1
+                else:
+                    if y2 <= py and self.is_left((x1, y1), (x2, y2), (px, py)) < 0:
+                        wn -= 1
+
+            # True = inside, False = outside
+            if wn:
+               total_herded_cattle += 1 
+        
+        effectiveness = total_herded_cattle / self.NUM_CATTLE * 100
+        return effectiveness
+
+    def is_left(self,p0, p1, p2):
+        """Tests if p2 is left of the directed line p0 -> p1"""
+        return (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1])
+        

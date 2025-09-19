@@ -23,6 +23,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.callbacks import EvalCallback, StopTrainingOnRewardThreshold
 
 from gym_pybullet_drones.utils.Logger import Logger
@@ -35,14 +36,14 @@ DEFAULT_RECORD_VIDEO = False
 DEFAULT_OUTPUT_FOLDER = 'models'
 DEFAULT_COLAB = False
 TARGET_REWARD = 99999 #reward to reach to end training
-LOAD_FILE = 'model-v5-3/best_model.zip' #'model-v3-1' #'save-08.19.2025_15.25.22/best_model.zip'
+LOAD_FILE = 'model-v5-9/best_model.zip' #'model-v3-1' #'save-08.19.2025_15.25.22/best_model.zip'
 
 DEFAULT_OBS = ObservationType('cokin') #collabrative kinematicsa
 DEFAULT_ACT = ActionType('vel') # 'rpm' or 'pid' or 'vel' or 'one_d_rpm' or 'one_d_pid'
 DEFAULT_DRONES = 10 #number of herding drones - DO NOT EXCEED 10
 DEFAULT_CATTLE = 8 #number of cattle to herd - DO NOT CHANGE
 
-MAX_TIMESTEPS = 1000  #max number of time steps before learning stops
+MAX_TIMESTEPS = 800000  #max number of time steps before learning stops
 EVALUATION_FREQUENCY = 2048 #number of steps to collect before updating policy
 
 EVALUTE_ONLY = False #not used - skips training and replays a saved model
@@ -57,13 +58,13 @@ def run(
         local=True):
     
 
-    filename = os.path.join(output_folder, 'model-v5-4')
+    filename = os.path.join(output_folder, 'model-v5-10')
     if not os.path.exists(filename):
         os.makedirs(filename+'/')
 
     #create environments
     env_kwargs = dict(num_drones=DEFAULT_DRONES, num_cattel=DEFAULT_CATTLE, obs=DEFAULT_OBS, act=DEFAULT_ACT)
-    train_env = make_vec_env(CattleAviary, env_kwargs=env_kwargs, n_envs=1, seed=0)
+    train_env = make_vec_env(CattleAviary, env_kwargs=env_kwargs, n_envs=8, vec_env_cls=SubprocVecEnv, seed=0)
     eval_env = DummyVecEnv([lambda: Monitor(CattleAviary(**env_kwargs))])
 
     #### Create the model #######################################
@@ -120,15 +121,11 @@ def run(
 
     ############################################################
 
-    if local:
-        input("Press Enter to continue...")
-
     if os.path.isfile(filename+'/best_model.zip'):
         path = filename+'/best_model.zip'
     else:
         print("[ERROR]: no model under the specified path", filename)
     model = PPO.load(path)
-
     #### Show (and record a video of) the model's performance ##
     # For recording / GUI test
     test_env = CattleAviary(gui=gui,
@@ -150,7 +147,11 @@ def run(
                     )
 
     test_env_nogui.is_evaluating = True
-    mean_reward, std_reward = evaluate_policy(model, test_env_nogui, n_eval_episodes=1)
+    mean_reward, std_reward = evaluate_policy(model, test_env_nogui, n_eval_episodes=100)
+    test_env_nogui.save_evaluation_data()
+    if local:
+        input("Press Enter to continue...")
+
     print("\n\n\nMean reward ", mean_reward, " +- ", std_reward, "\n\n")
 
     obs, info = test_env.reset(seed=42, options={})

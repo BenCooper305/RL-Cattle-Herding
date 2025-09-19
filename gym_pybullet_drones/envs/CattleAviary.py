@@ -18,7 +18,7 @@ class CattleAviary(BaseRLAviary):
                  initial_rpys=None,
                  physics: Physics=Physics.PYB,
                  pyb_freq: int = 240,
-                 ctrl_freq: int = 60,
+                 ctrl_freq: int = 120,
                  gui=False,
                  record=False,
                  obs: ObservationType=ObservationType.COKIN,
@@ -86,7 +86,7 @@ class CattleAviary(BaseRLAviary):
         self.SPACING_R0 = 1.25 #piecewise threshold
         self.SPACING_LAM = 0.7 #exp decay
 
-        self.MAX_ALT_ERROR = self.DRONE_TARGET_ALTITUDE * 0.3
+        self.MAX_ALT_ERROR = self.DRONE_TARGET_ALTITUDE * 0.4
 
         self.REWARD_WEIGHTS = dict(drone_hull_distance=1, 
                                    drone_hull_approach=0.8, 
@@ -185,7 +185,7 @@ class CattleAviary(BaseRLAviary):
         """Computes the current done value."""
         hull_points = np.array(self.get_hull_positions())
         if hull_points.size == 0:
-            return False  # or True, depending on what "done" means when no hull exists
+            return False
         
         hull_points = hull_points[:, :2]  # (H,2)
         drone_positions = np.array([self._getDroneStateVector(i)[:2] for i in range(self.NUM_DRONES)])  # (N,2)
@@ -195,6 +195,10 @@ class CattleAviary(BaseRLAviary):
 
         hull_covered = np.any(dist_matrix <= 0.7, axis=1)
         done = np.all(hull_covered)
+
+        if done and self.is_evaluating:
+            self.append_evaluation_data()
+
         return done
 
 
@@ -214,20 +218,25 @@ class CattleAviary(BaseRLAviary):
         cent_dist = np.linalg.norm(drone_centroid - cattle_centroid, axis=-1)
 
         if cent_dist > self.MAX_DIST:
+            #print("FAIL 3!!!!!!!!!!!!!")
+            if self.is_evaluating:
+                self.append_evaluation_data()
             return True
         
         for i in range(self.NUM_DRONES):
-            roll = states[i][7]
-            pitch = states[i][8]
-            if abs(roll) > 0.5 or abs(pitch) > 0.5:
-                return True
-
-        z = states[i][2]
-        if abs(z - self.DRONE_TARGET_ALTITUDE) > self.MAX_ALT_ERROR:
-            return True       
-    
-        # --- Episode timeout ---
-        if self.step_counter / self.PYB_FREQ > self.EPISODE_LEN_SEC:
+            z = states[i][2]
+            if abs(z - self.DRONE_TARGET_ALTITUDE) > self.MAX_ALT_ERROR:
+                # print("FAIL 2!!!!!!!!!!!!!")
+                if self.is_evaluating:
+                    self.append_evaluation_data()
+                return True       
+        
+        # --- Episode timeout ---self.step_counter
+        elapsed_sec = self.step_counter / self.CTRL_FREQ
+        if elapsed_sec > self.EPISODE_LEN_SEC:
+            if self.is_evaluating:
+                self.append_evaluation_data()
+            # print(f"FAIL: Episode exceeded {self.EPISODE_LEN_SEC} s")
             return True
 
         return False
