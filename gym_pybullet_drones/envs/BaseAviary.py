@@ -11,7 +11,7 @@ import pybullet as p
 import gymnasium as gym
 import xml.etree.ElementTree as etxml
 import gym_pybullet_drones.utils.utils as utils
-
+from gym_pybullet_drones.utils.evaluation import evaluator 
 from PIL import Image
 from sys import platform
 from datetime import datetime
@@ -85,6 +85,8 @@ class BaseAviary(gym.Env, MathematicalFlock):
         """
         yaml_path = os.path.join(os.path.dirname(__file__), "..", "config", "cattle_positions.yaml")
         yaml_path = os.path.abspath(yaml_path) 
+
+        self.eval_system = evaluator()
 
         with open(yaml_path, "r") as f:
             self.cattle_spawn_data = yaml.safe_load(f)
@@ -577,13 +579,43 @@ class BaseAviary(gym.Env, MathematicalFlock):
 
         self.CATTLE_IDS = []
 
-        for i in range(min(self.NUM_CATTLE, len(cows))):
-            cow_info = cows[i]
-            x, y = cow_info["x"], cow_info["y"]
-            z = 0.1  # keep z fixed
+        # for i in range(min(self.NUM_CATTLE, len(cows))):
+        #     cow_info = cows[i]
+        #     x, y = cow_info["x"], cow_info["y"]
+        #     z = 0.1  # keep z fixed
+        #     cow_id = p.loadURDF(
+        #         "cube_no_rotation.urdf",
+        #         [x, y, z],
+        #         p.getQuaternionFromEuler([0, 0, 0]),
+        #         globalScaling=0.2,
+        #         physicsClientId=self.CLIENT
+        #     )
+        #     self.CATTLE_IDS.append(cow_id)
+
+                    # Minimum distance from origin
+        min_radius = 1.0  
+        # Maximum distance you want cattle to spawn
+        max_radius = 3.0  
+
+        # Pick a random angle [0, 2π)
+        theta = np.random.uniform(0, 2*np.pi)
+        # Pick a random radius [min_radius, max_radius)
+        r = np.random.uniform(min_radius, max_radius)
+
+        # Convert polar → Cartesian
+        x = r * np.cos(theta)
+        y = r * np.sin(theta)
+        z = 0.1
+
+        herd_center = np.array([x, y, z])
+
+        for i in range(self.NUM_CATTLE):
+            # Random offset around the herd centre (e.g., within a 1m radius circle)
+            offset = np.random.uniform(low=0.0, high=1.0, size=2)
+            pos = herd_center[:2] + offset
             cow_id = p.loadURDF(
                 "cube_no_rotation.urdf",
-                [x, y, z],
+                [pos[0], pos[1], herd_center[2]],  # keep z fixed at 0.1
                 p.getQuaternionFromEuler([0, 0, 0]),
                 globalScaling=0.2,
                 physicsClientId=self.CLIENT
@@ -1329,7 +1361,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         #Density
         #herd_density = MathematicalFlock._herd_density(herd_states=cattle_states,shepherd_states=drone_states)
 
-        self.update_hull_postions(markerPoints)
+        #self.update_hull_postions(markerPoints)
 
         #Combine controls into acceleration
         qdot = (1 - self._flocking_condition) * local_clustering + \
@@ -1377,7 +1409,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         current_num = len(hull_points)
         extra_needed = target_num - current_num
 
-        # Simple linear interpolation between consecutive points
+        #Simple linear interpolation between consecutive points
         extra_points = []
         for i in range(extra_needed):
             idx = i % current_num
@@ -1386,7 +1418,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
             new_point = (p1 + p2) / 2  # midpoint
             extra_points.append(new_point)
 
-        extra_points = np.array(extra_points)  # convert to NumPy array
+        extra_points = np.array(extra_points)
 
         if extra_points.size > 0:
             all_points = np.vstack([hull_points, extra_points])
@@ -1454,85 +1486,46 @@ class BaseAviary(gym.Env, MathematicalFlock):
         Called per simulation step to update evalution data
         """
 
-        states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
+
+        drone_poses = np.zeros((self.NUM_DRONES, 2), dtype=float)
+        cattle_poses = np.zeros((self.NUM_CATTLE, 2), dtype=float)
+
+        drone_vel = np.zeros((self.NUM_DRONES, 2), dtype=float)
+        cattle_vel = np.zeros((self.NUM_CATTLE, 2), dtype=float)
 
         for drone_idx in range(self.NUM_DRONES):
             previous_pos = self.last_drones_pos[drone_idx]
-            current_pos = states[drone_idx, 0:2]
+            current_pos = drone_states[drone_idx, 0:2]
             delta_dist =  np.linalg.norm(previous_pos - current_pos)
-            self.episode_drone_distances[drone_idx] += delta_dist
+            self.episode_drone_distances[drone_idx] += delta_dist * 1.7
+            drone_poses[drone_idx] = current_pos
             self.last_drones_pos[drone_idx] = current_pos
+            drone_vel[drone_idx] = drone_states[drone_idx, 10:12]
+
+        for cattle_idx in range(self.NUM_CATTLE):
+            cattle_poses[cattle_idx] = cattle_states[cattle_idx, 0:2]
+            cattle_vel[cattle_idx] = cattle_states[cattle_idx, 10:12]
+
+        ep_time = self.step_counter / self.CTRL_FREQ
+        effectiveness = self.eval_system.calculate_effectiveness(cattle_poses , self.get_hull_positions())
+        self.eval_system.append_timestep_data(self.episode_drone_distances, ep_time, effectiveness, drone_poses, cattle_poses, drone_vel, cattle_vel)
 
     #######################################################################
-    def append_evaluation_data(self):
-        """
-        Called at the end of an episode to save episode evalution data
-        """
-        print("Episode Ended - Appending Data")
-        print(f"Data appneded: {self.episode_drone_distances}, {self.NUM_DRONES}, {self.step_counter / self.PYB_FREQ}, {self.calculate_effectiveness()}")
-        self.total_drone_distances.append(self.episode_drone_distances)
-        self.total_number_of_drones.append(self.NUM_DRONES)
-        self.total_time_taken.append(self.step_counter / self.PYB_FREQ)
-        self.total_effectiveness.append(self.calculate_effectiveness())  # Or compute actual effectiveness here
 
+    def evaluation_episode_trigger(self):
+        ep_time = self.step_counter / self.CTRL_FREQ
 
-    def save_evaluation_data(self, save_path="evaluation_data.pkl"):
+        drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        drone_poses = drone_states[:, :2]        # drone positions
+        cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
+        cattle_poses = cattle_states[:, :2]      
 
-        print(f"Number of episodes collected: {len(self.total_time_taken)}")
-        print(f"Distances list length: {len(self.total_drone_distances)}")
-        print(f"Number of drones list length: {len(self.total_number_of_drones)}")
-        print(f"Effectiveness list length: {len(self.total_effectiveness)}")
+        drone_vel = drone_states[:, 10:13]     # drone velocities
 
-        # Optionally, print the first few entries for a quick check
-        if len(self.total_time_taken) > 0:
-            print(f"First episode data:")
-            print(f"  Time taken: {self.total_time_taken[0]}")
-            print(f"  Num drones: {self.total_number_of_drones[0]}")
-            print(f"  Effectiveness: {self.total_effectiveness[0]}")
-            print(f"  Drone distances: {self.total_drone_distances[0]}")
-
-        print("Evaulation Completed - Saving Evaulation Data")
-        eval_data = {
-            "distances": self.total_drone_distances,
-            "num_drones": self.total_number_of_drones,
-            "time_taken": self.total_time_taken,
-            "effectiveness": self.total_effectiveness,
-        }
-
-        with open(save_path, "wb") as f:
-            pickle.dump(eval_data, f)
-
-        print(f"Evaluation data saved to {os.path.abspath(save_path)}")
-
-    def calculate_effectiveness(self):
-        total_herded_cattle = 0
-        polygon = self.get_hull_positions()
-        for cow_idx in range(self.NUM_CATTLE):
-            point = self._getCowStateVector(cow_idx)[0:2]
-
-            wn = 0
-            px, py = point
-            n = len(polygon)
-
-            for i in range(n):
-                x1, y1, z1 = polygon[i]
-                x2, y2, z2 = polygon[(i + 1) % n]
-
-                if y1 <= py:
-                    if y2 > py and self.is_left((x1, y1), (x2, y2), (px, py)) > 0:
-                        wn += 1
-                else:
-                    if y2 <= py and self.is_left((x1, y1), (x2, y2), (px, py)) < 0:
-                        wn -= 1
-
-            # True = inside, False = outside
-            if wn:
-               total_herded_cattle += 1 
-        
-        effectiveness = total_herded_cattle / self.NUM_CATTLE * 100
-        return effectiveness
-
-    def is_left(self,p0, p1, p2):
-        """Tests if p2 is left of the directed line p0 -> p1"""
-        return (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1])
-        
+        effectiveness = self.eval_system.calculate_effectiveness(cattle_poses , self.get_hull_positions())
+        self.eval_system.append_episode_data(self.episode_drone_distances, self.NUM_DRONES, ep_time, effectiveness)
+    
+    def evaluation_save(self):
+        self.eval_system.save_evaluation_data()

@@ -83,7 +83,7 @@ class MathematicalFlock(): #Removed Behavior inheritance
                                                             cattle_states=cattle_states, drone_states=drone_states)
 
             # Ultimate flocking model
-            u[idx] = u_alpha + u_delta
+            u[idx] = u_alpha + u_delta # u_alpha *10
         return u
     
     def _herd_density(self, herd_states: np.ndarray,

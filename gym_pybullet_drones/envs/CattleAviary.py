@@ -73,7 +73,7 @@ class CattleAviary(BaseRLAviary):
                          )
         
         self._last_dist_to_centroid = None
-        self.MAX_VEL = 6
+        self.MAX_VEL = 2
         self.MAX_DIST = 7
         self.prev_dists = None
         self.prev_cent_dists = None
@@ -90,8 +90,8 @@ class CattleAviary(BaseRLAviary):
 
         self.REWARD_WEIGHTS = dict(drone_hull_distance=1, 
                                    drone_hull_approach=0.5, 
-                                   centroid=0.05, 
-                                   centroid_approach = 0.05,
+                                   centroid=1, 
+                                   centroid_approach = 0.3,
                                    drone_spacing = 0.4
                                    )
     ################################################################################
@@ -133,54 +133,54 @@ class CattleAviary(BaseRLAviary):
         num_pairs = self.NUM_DRONES * (self.NUM_DRONES - 1) / 2 + self.NUM_DRONES
         drone_spacing_reward /= num_pairs
 
-        # --- Hull point rewards (stop-and-hold) ---
-        drone_hull_distance_reward = 0.0
-        drone_hull_approach_reward = 0.0
-        hull_positions = [np.array(p[:2]) for p in self.hullMarkerPositions]
+        # # --- Hull point rewards (stop-and-hold) ---
+        # drone_hull_distance_reward = 0.0
+        # drone_hull_approach_reward = 0.0
+        # hull_positions = [np.array(p[:2]) for p in self.hullMarkerPositions]
 
-        sigma = 0.2       # smaller sigma for sharper peak
-        vel_penalty_factor = 0.5  # penalise velocity near target
+        # sigma = 0.2       # smaller sigma for sharper peak
+        # vel_penalty_factor = 0.2  # penalise velocity near target
 
-        if hull_positions:
-            for i in range(self.NUM_DRONES):
-                drone_pos = pos[i, :2]
+        # if hull_positions:
+        #     for i in range(self.NUM_DRONES):
+        #         drone_pos = pos[i, :2]
 
-                # Assign nearest hull point
-                hull_dists = np.array([np.linalg.norm(drone_pos - hp) for hp in hull_positions])
-                target_idx = np.argmin(hull_dists)
-                target_hull = hull_positions[target_idx]
-                dist_to_hull = hull_dists[target_idx]
+        #         # Assign nearest hull point
+        #         hull_dists = np.array([np.linalg.norm(drone_pos - hp) for hp in hull_positions])
+        #         target_idx = np.argmin(hull_dists)
+        #         target_hull = hull_positions[target_idx]
+        #         dist_to_hull = hull_dists[target_idx]
 
-                # --- Proximity reward with sharp peak at hull ---
-                # Max reward at hull point, decays quickly with distance
-                proximity_reward = np.exp(- (dist_to_hull**2) / sigma**2)
+        #         # --- Proximity reward with sharp peak at hull ---
+        #         # Max reward at hull point, decays quickly with distance
+        #         proximity_reward = self.SpacingRewardValue(dist_to_hull)
 
-                # --- Directional reward with stopping behaviour ---
-                dir_vec = target_hull - drone_pos
-                dir_unit = dir_vec / (np.linalg.norm(dir_vec) + 1e-6)
-                vel_toward_target = np.dot(vel[i, :2], dir_unit)
+        #         # --- Directional reward with stopping behaviour ---
+        #         dir_vec = target_hull - drone_pos
+        #         dir_unit = dir_vec / (np.linalg.norm(dir_vec) + 1e-6)
+        #         vel_toward_target = np.dot(vel[i, :2], dir_unit)
 
-                # Encourage moving toward target when far, penalise moving when close
-                if dist_to_hull > sigma:  # far from target → encourage moving
-                    directional_reward = np.clip(vel_toward_target / self.MAX_VEL, -1, 1)
-                    vel_penalty = 0.0
-                else:  # near target → penalise velocity to encourage stop
-                    directional_reward = 0.0
-                    vel_penalty = vel_penalty_factor * (np.linalg.norm(vel[i, :2]) / self.MAX_VEL)
+        #         # Encourage moving toward target when far, penalise moving when close
+        #         if dist_to_hull > sigma:  # far from target → encourage moving
+        #             directional_reward = np.clip(vel_toward_target / self.MAX_VEL, -1, 1)
+        #             vel_penalty = 0.0
+        #         else:  # near target → penalise velocity to encourage stop
+        #             directional_reward = 0.0
+        #             vel_penalty = vel_penalty_factor * (np.linalg.norm(vel[i, :2]) / self.MAX_VEL)
 
-                drone_hull_approach_reward += directional_reward
-                drone_hull_distance_reward += proximity_reward - vel_penalty
+        #         drone_hull_approach_reward += directional_reward
+        #         drone_hull_distance_reward += proximity_reward - vel_penalty
 
-            drone_hull_approach_reward /= self.NUM_DRONES
-            drone_hull_distance_reward /= self.NUM_DRONES
+        #     drone_hull_approach_reward /= self.NUM_DRONES
+        #     drone_hull_distance_reward /= self.NUM_DRONES
 
         # --- Combine rewards ---
         r = (
             centroid_distance_reward * self.REWARD_WEIGHTS["centroid"]
             + centroid_approach_reward * self.REWARD_WEIGHTS["centroid_approach"]
             + drone_spacing_reward * self.REWARD_WEIGHTS["drone_spacing"]
-            + drone_hull_approach_reward * self.REWARD_WEIGHTS["drone_hull_approach"]
-            + drone_hull_distance_reward * self.REWARD_WEIGHTS["drone_hull_distance"]
+            # + drone_hull_approach_reward * self.REWARD_WEIGHTS["drone_hull_approach"]
+            # + drone_hull_distance_reward * self.REWARD_WEIGHTS["drone_hull_distance"]
         )
 
         return float(r)
@@ -204,7 +204,7 @@ class CattleAviary(BaseRLAviary):
         done = np.all(hull_covered)
 
         if done and self.is_evaluating:
-            self.append_evaluation_data()
+            self.evaluation_episode_trigger()
 
         return done
 
@@ -227,7 +227,7 @@ class CattleAviary(BaseRLAviary):
         if cent_dist > self.MAX_DIST:
             #print("FAIL 3!!!!!!!!!!!!!")
             if self.is_evaluating:
-                self.append_evaluation_data()
+                self.evaluation_episode_trigger()
             return True
         
         for i in range(self.NUM_DRONES):
@@ -235,14 +235,14 @@ class CattleAviary(BaseRLAviary):
             if abs(z - self.DRONE_TARGET_ALTITUDE) > self.MAX_ALT_ERROR:
                 # print("FAIL 2!!!!!!!!!!!!!")
                 if self.is_evaluating:
-                    self.append_evaluation_data()
+                    self.evaluation_episode_trigger()
                 return True       
         
         # --- Episode timeout ---self.step_counter
         elapsed_sec = self.step_counter / self.CTRL_FREQ
         if elapsed_sec > self.EPISODE_LEN_SEC:
             if self.is_evaluating:
-                self.append_evaluation_data()
+                self.evaluation_episode_trigger()
             # print(f"FAIL: Episode exceeded {self.EPISODE_LEN_SEC} s")
             return True
 
