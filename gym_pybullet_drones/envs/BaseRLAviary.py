@@ -16,7 +16,7 @@ class BaseRLAviary(BaseAviary):
     def __init__(self,
                  drone_model: DroneModel=DroneModel.CF2X,
                  num_drones: int=2,
-                 num_cattel: int =1,
+                 num_cattle: int =1,
                  neighbourhood_radius: float=np.inf,
                  initial_xyzs=None,
                  initial_rpys=None,
@@ -80,7 +80,7 @@ class BaseRLAviary(BaseAviary):
                 print("[ERROR] in BaseRLAviary.__init()__, no controller is available for the specified drone_model")
         super().__init__(drone_model=drone_model,
                          num_drones=num_drones,
-                         num_cattel=num_cattel,
+                         num_cattle=num_cattle,
                          neighbourhood_radius=neighbourhood_radius,
                          initial_xyzs=initial_xyzs,
                          initial_rpys=initial_rpys,
@@ -338,44 +338,47 @@ class BaseRLAviary(BaseAviary):
     
     def HerdCentroid(self):
         """
-
-        Calculates the center of the herd and updates the centorid marker to that location
-
+        Calculates the center of the herd and updates the visual centroid marker to that location.
         """
-        
+
         cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
-        cattle_positions = cattle_states[:, 0:3] 
+        cattle_positions = cattle_states[:, 0:3]
 
+        # Compute XY centroid
         centroid_xy = np.mean(cattle_positions[:, :2], axis=0)
-        centroid = np.array([centroid_xy[0], centroid_xy[1], self.DRONE_TARGET_ALTITUDE])
+        centroid = np.array([centroid_xy[0], centroid_xy[1], self.DRONE_TARGET_ALTITUDE+0.5])
 
-        p.resetBasePositionAndOrientation(self.CattleCentroidMarker,
-                                            centroid,
-                                            p.getQuaternionFromEuler([0, 0, 0]),
-                                            physicsClientId=self.CLIENT)
-        
+        # Update visual marker position
+        p.resetBasePositionAndOrientation(
+            self.CattleCentroidMarker,
+            centroid,
+            p.getQuaternionFromEuler([0, 0, 0]),
+            physicsClientId=self.CLIENT
+        )
 
         return centroid
 
     ################################################################################
-        
+
     def DroneCentroid(self):
         """
-
-        Calculates the center of the herd and updates the centorid marker to that location
-
+        Calculates the center of the drones and updates the visual centroid marker to that location.
         """
-        
+
         drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
-        drone_positions = drone_states[:, 0:3] 
+        drone_positions = drone_states[:, 0:3]
 
+        # Compute XY centroid
         centroid_xy = np.mean(drone_positions[:, :2], axis=0)
-        centroid = np.array([centroid_xy[0], centroid_xy[1], self.DRONE_TARGET_ALTITUDE])
+        centroid = np.array([centroid_xy[0], centroid_xy[1], self.DRONE_TARGET_ALTITUDE+0.5])
 
-        p.resetBasePositionAndOrientation(self.DroneCentroidMarker,
-                                            centroid,
-                                            p.getQuaternionFromEuler([0, 0, 0]),
-                                            physicsClientId=self.CLIENT)
-        
+        # Update visual marker position
+        p.resetBasePositionAndOrientation(
+            self.DroneCentroidMarker,
+            centroid,
+            p.getQuaternionFromEuler([0, 0, 0]),
+            physicsClientId=self.CLIENT
+        )
 
         return centroid
+

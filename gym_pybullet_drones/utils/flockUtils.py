@@ -232,38 +232,6 @@ class MathematicalFlock(): #Removed Behavior inheritance
                                             pi=pi)
         return u_gamma
 
-    # def _calc_shepherd_interaction_control(self, idx: int,
-    #                                        drones_idxs: np.ndarray,
-    #                                        delta_adj_matrix: np.ndarray,
-    #                                        cattle_states: np.ndarray,
-    #                                        drone_states: np.ndarray):
-    #     qi = cattle_states[idx, :2]
-    #     pi = cattle_states[idx, 2:4]
-    #     u_delta = np.zeros(2)
-
-    #     if sum(drones_idxs) > 0:
-    #         # Create delta_agent
-    #         delta_in_radius = np.where(delta_adj_matrix[idx] > 0)
-    #         delta_agents = np.array([]).reshape((0, 4))
-    #         for del_idx in delta_in_radius[0]:
-    #             delta_agent = drone_states[del_idx, 0, :3].induce_delta_agent(self._herds[idx])
-    #             delta_agents = np.vstack((delta_agents, delta_agent))
-
-    #         qid = delta_agents[:, :2]
-    #         pid = delta_agents[:, 2:4]
-    #         delta_grad = self._gradient_term(c=MathematicalFlock.C2_beta, qi=qi, qj=qid,
-    #                                          r=MathematicalFlock.BETA_RANGE,
-    #                                          d=MathematicalFlock.BETA_DISTANCE)
-    #         delta_consensus = self._velocity_consensus_term(c=MathematicalFlock.C2_beta,
-    #                                                         qi=qi, qj=qid,
-    #                                                         pi=pi, pj=pid,
-    #                                                         r=MathematicalFlock.BETA_RANGE)
-    #         u_delta = delta_grad + delta_consensus
-
-    #     u_delta += self._predator_avoidance_term(si=qi, r=self._danger_range, k=650000, drone_states=drone_states)
-
-    #     return u_delta
-
     def _calc_shepherd_interaction_control(self, idx: int,
                                        drones_idxs: np.ndarray,
                                        delta_adj_matrix: np.ndarray,
@@ -277,7 +245,7 @@ class MathematicalFlock(): #Removed Behavior inheritance
         pi = cattle_states[idx, 10:12] # velocity
         u_delta = np.zeros(2)         # initialize control
 
-        # Only compute if any drones are active
+        #Only compute if any drones are active
         if np.any(drones_idxs):
             # Find nearby drones from adjacency matrix
             delta_in_radius = np.where(delta_adj_matrix[idx] > 0)[0]
@@ -292,15 +260,15 @@ class MathematicalFlock(): #Removed Behavior inheritance
                     diff = qi - yk
                     d = np.linalg.norm(diff) + 1e-6  # distance
 
-                    # scaling factor
+                    #scaling factor
                     r = self._r if hasattr(self, "_r") else 1.0
                     mu = min(d / r, 1.0)  # clipped to [0,1]
 
-                    # unit vector from drone to cow
+                    #unit vector from drone to cow
                     ak = diff / d
                     P = np.eye(2) - np.outer(ak, ak)  # project perpendicular
 
-                    # blended position and projected velocity
+                    #blended position and projected velocity
                     qik = mu * qi + (1 - mu) * yk
                     pik = mu * (P @ pi)
 
@@ -310,7 +278,6 @@ class MathematicalFlock(): #Removed Behavior inheritance
                 qid = delta_agents[:, :2]
                 pid = delta_agents[:, 2:4]
 
-                # gradient and consensus terms
                 delta_grad = self._gradient_term(c=MathematicalFlock.C2_beta,
                                                 qi=qi, qj=qid,
                                                 r=MathematicalFlock.BETA_RANGE,
@@ -323,7 +290,7 @@ class MathematicalFlock(): #Removed Behavior inheritance
 
                 u_delta = delta_grad + delta_consensus
 
-        # predator avoidance
+        #predator avoidance
         u_delta += self._predator_avoidance_term(si=qi,
                                                 r=self._danger_range,
                                                 k=650000,
@@ -448,9 +415,6 @@ class MathematicalFlock(): #Removed Behavior inheritance
             # Pull to perimeter target
             u_gamma = -self.C1_gamma * MathUtils.sigma_1(qi - target) - self.C2_gamma * pi
             u[i] += u_gamma
-
-        # Optional: add drone-to-drone lattice forces
-        # u += self.compute_drone_lattice_forces(drone_states)
 
         return u, hull_points
 

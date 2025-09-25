@@ -12,7 +12,7 @@ class CattleAviary(BaseRLAviary):
     def __init__(self,
                  drone_model: DroneModel=DroneModel.CF2X,
                  num_drones: int=2,
-                 num_cattel: int=1,
+                 num_cattle: int=1,
                  neighbourhood_radius: float=np.inf,
                  initial_xyzs=None,
                  initial_rpys=None,
@@ -56,10 +56,10 @@ class CattleAviary(BaseRLAviary):
             The type of action space (1 or 3D; RPMS, thurst and torques, or waypoint with PID control)
 
         """
-        self.EPISODE_LEN_SEC = 20
+        self.EPISODE_LEN_SEC = 30
         super().__init__(drone_model=drone_model,
                          num_drones=num_drones,
-                         num_cattel=num_cattel,
+                         num_cattle=num_cattle,
                          neighbourhood_radius=neighbourhood_radius,
                          initial_xyzs=initial_xyzs,
                          initial_rpys=initial_rpys,
@@ -74,40 +74,59 @@ class CattleAviary(BaseRLAviary):
         
         self._last_dist_to_centroid = None
         self.MAX_VEL = 2
-        self.MAX_DIST = 7
+        self.MAX_DIST = 12
         self.prev_dists = None
         self.prev_cent_dists = None
 
-        self.SPACING_A = 1.5 #pos amp coef
-        self.SPACING_B = 2.4 #neg amp coef
-        self.SPACING_C = 0.8 #width of pos coef
-        self.SPACING_K = 0.3 #width of neg coef
-        self.SPACING_D = 0.1 #pos peak offset
-        self.SPACING_R0 = 1.25 #piecewise threshold
-        self.SPACING_LAM = 0.7 #exp decay
+        self.SPACING_A = 1.2 #pos amp coef
+        self.SPACING_B = 2.1 #neg amp coef
+        self.SPACING_C = 3.3 #width of pos coef
+        self.SPACING_K = 0.2 #width of neg coef
+        self.SPACING_D = -1 #pos peak offset
+        self.SPACING_R0 = 1.3 #piecewise threshold
+        self.SPACING_LAM = 0.8 #exp decay
 
         self.MAX_ALT_ERROR = self.DRONE_TARGET_ALTITUDE * 0.4
 
-        self.REWARD_WEIGHTS = dict(drone_hull_distance=1, 
-                                   drone_hull_approach=0.5, 
-                                   centroid=1, 
-                                   centroid_approach = 0.3,
-                                   drone_spacing = 0.4
+        #Reward Paramaters
+        self.REWARD_WEIGHTS = dict(drone_to_drone_spacing = 1,
+                                   centroid_distance= 1, 
+                                #    drone_to_cattle_spacing = 0.4
                                    )
+        
+        self.TERMINATION_CENTROID_THRESH = 0.25
     ################################################################################
     
 
     def _computeReward(self):
-        """Reward: move toward hull points, maintain spacing, herd centroid."""
-
-        # --- Data ---
+        #Data
         cattle_centroid = self.HerdCentroid()
         drone_centroid = self.DroneCentroid()
-        states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
-        pos = states[:, :3]        # drone positions
-        vel = states[:, 10:13]     # drone velocities
+        drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
 
-        # --- Centroid rewards (smaller weight) ---
+        drones_poses = drone_states[:, :2]
+        drone_vel = drone_states[:, 10:12]
+
+        cattle_poses = cattle_states[:, :2]
+
+        #Drone to Drone Spacing
+        drone_to_drone_spacing_reward = 0.0
+        for i in range(self.NUM_DRONES):
+            pos_i = drones_poses[i]
+
+            other_dists = np.linalg.norm(drones_poses[:] - pos_i, axis=1)
+            other_dists[i] = np.inf  # ignore self
+
+            nearest_two = np.partition(other_dists, 1)[:2]  # get two smallest distances
+            for dist in nearest_two:
+                rwd = self.SpacingRewardValue(dist)
+                drone_to_drone_spacing_reward += rwd
+
+        # # Average over all drones and terms
+        # drone_spacing_reward /= self.NUM_DRONES * 3  # 2 nearest + 1 centroid per drone
+
+        #Centroid Distance Reward
         cent_dist = np.linalg.norm(drone_centroid - cattle_centroid)
         if self.prev_cent_dists is None:
             self.prev_cent_dists = cent_dist
@@ -115,98 +134,82 @@ class CattleAviary(BaseRLAviary):
         centroid_distance_reward = cent_dist_change / (self.MAX_DIST + 1e-6)
         self.prev_cent_dists = cent_dist
 
-        dir_to_cattle = cattle_centroid[:2] - pos[:, :2]
-        dists_to_cattle = np.linalg.norm(dir_to_cattle, axis=1)
-        dir_unit = np.where(dists_to_cattle[:, None] > 0, dir_to_cattle / dists_to_cattle[:, None], 0.0)
-        centroid_approach_reward = np.mean(np.sum(vel[:, :2] * dir_unit, axis=1)) / (self.MAX_VEL + 1e-6)
 
-        # --- Drone spacing ---
-        drone_spacing_reward = 0.0
-        for i in range(self.NUM_DRONES):
-            pos_i = pos[i, :2]
-            for j in range(i + 1, self.NUM_DRONES):
-                pos_j = pos[j, :2]
-                dist = np.linalg.norm(pos_i - pos_j)
-                drone_spacing_reward += self.SpacingRewardValue(dist)
-            dist_cent = np.linalg.norm(pos_i - drone_centroid[:2])
-            drone_spacing_reward += self.SpacingRewardValue(dist_cent)
-        num_pairs = self.NUM_DRONES * (self.NUM_DRONES - 1) / 2 + self.NUM_DRONES
-        drone_spacing_reward /= num_pairs
 
-        # # --- Hull point rewards (stop-and-hold) ---
-        # drone_hull_distance_reward = 0.0
-        # drone_hull_approach_reward = 0.0
-        # hull_positions = [np.array(p[:2]) for p in self.hullMarkerPositions]
+        # dir_to_cattle = cattle_centroid[:2] - drones_poses[:, :2]
+        # dists_to_cattle = np.linalg.norm(dir_to_cattle, axis=1)
+        # dir_unit = np.where(dists_to_cattle[:, None] > 0, dir_to_cattle / dists_to_cattle[:, None], 0.0)
+        # centroid_approach_reward = np.mean(np.sum(drone_vel[:, :2] * dir_unit, axis=1)) / (self.MAX_VEL + 1e-6)
 
-        # sigma = 0.2       # smaller sigma for sharper peak
-        # vel_penalty_factor = 0.2  # penalise velocity near target
 
-        # if hull_positions:
-        #     for i in range(self.NUM_DRONES):
-        #         drone_pos = pos[i, :2]
+        # --- Drone to Cattle Spacing (closest cattle only) ---
+        # drone_cattle_spacing_reward = 0.0
+        # for i in range(self.NUM_DRONES):
+        #     pos_i = drones_poses[i]
+        #     dists_to_cattle = np.linalg.norm(cattle_poses - pos_i, axis=1)
+        #     closest_dist = np.min(dists_to_cattle)
+        #     drone_cattle_spacing_reward += self.SpacingRewardValue(closest_dist)
+        #     print(f"drones: {i}, drone distance to nearest cattle: {closest_dist}, drone reward: {drone_cattle_spacing_reward}")
 
-        #         # Assign nearest hull point
-        #         hull_dists = np.array([np.linalg.norm(drone_pos - hp) for hp in hull_positions])
-        #         target_idx = np.argmin(hull_dists)
-        #         target_hull = hull_positions[target_idx]
-        #         dist_to_hull = hull_dists[target_idx]
+        # # Average over drones
+        # drone_cattle_spacing_reward /= self.NUM_DRONES
 
-        #         # --- Proximity reward with sharp peak at hull ---
-        #         # Max reward at hull point, decays quickly with distance
-        #         proximity_reward = self.SpacingRewardValue(dist_to_hull)
-
-        #         # --- Directional reward with stopping behaviour ---
-        #         dir_vec = target_hull - drone_pos
-        #         dir_unit = dir_vec / (np.linalg.norm(dir_vec) + 1e-6)
-        #         vel_toward_target = np.dot(vel[i, :2], dir_unit)
-
-        #         # Encourage moving toward target when far, penalise moving when close
-        #         if dist_to_hull > sigma:  # far from target → encourage moving
-        #             directional_reward = np.clip(vel_toward_target / self.MAX_VEL, -1, 1)
-        #             vel_penalty = 0.0
-        #         else:  # near target → penalise velocity to encourage stop
-        #             directional_reward = 0.0
-        #             vel_penalty = vel_penalty_factor * (np.linalg.norm(vel[i, :2]) / self.MAX_VEL)
-
-        #         drone_hull_approach_reward += directional_reward
-        #         drone_hull_distance_reward += proximity_reward - vel_penalty
-
-        #     drone_hull_approach_reward /= self.NUM_DRONES
-        #     drone_hull_distance_reward /= self.NUM_DRONES
-
-        # --- Combine rewards ---
+        #Combine Rewards
         r = (
-            centroid_distance_reward * self.REWARD_WEIGHTS["centroid"]
-            + centroid_approach_reward * self.REWARD_WEIGHTS["centroid_approach"]
-            + drone_spacing_reward * self.REWARD_WEIGHTS["drone_spacing"]
-            # + drone_hull_approach_reward * self.REWARD_WEIGHTS["drone_hull_approach"]
-            # + drone_hull_distance_reward * self.REWARD_WEIGHTS["drone_hull_distance"]
+             centroid_distance_reward * self.REWARD_WEIGHTS["centroid_distance"]
+             + drone_to_drone_spacing_reward * self.REWARD_WEIGHTS["drone_to_drone_spacing"]
+            #drone_cattle_spacing_reward * 1
         )
 
-        return float(r)
+        #End of Episode Rewards
+        done = self._computeTerminated() or self._computeTruncated()
+        if done:
 
+            #reward for drone centorid being near cattle centroid
+            if cent_dist < self.TERMINATION_CENTROID_THRESH:
+                r+= 100
+            else:
+                r -= cent_dist * 2
+
+        #     effectiveness = self.eval_system.calculate_effectiveness(cattle_poses,drones_poses)
+        #     if effectiveness == 100: #missive reward for herding all cattle
+        #         r += 100
+        #     elif effectiveness == 0: #negative reward for herding nothing
+        #         r -= 25
+        #     else:
+        #         r +=  effectiveness/10 #bonus 1 - 9 points for number of cattle herded
+
+        # print(f"reward given: {r}")
+        # print(f"####################")
+        return float(r)
 
     ################################################################################
     
     def _computeTerminated(self):
         """Computes the current done value."""
-        hull_points = np.array(self.get_hull_positions())
-        if hull_points.size == 0:
-            return False
-        
-        hull_points = hull_points[:, :2]  # (H,2)
-        drone_positions = np.array([self._getDroneStateVector(i)[:2] for i in range(self.NUM_DRONES)])  # (N,2)
 
-        # Compute distance matrix
-        dist_matrix = np.linalg.norm(hull_points[:, None, :] - drone_positions[None, :, :], axis=-1)
+        drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
 
-        hull_covered = np.any(dist_matrix <= 0.7, axis=1)
-        done = np.all(hull_covered)
+        drones_poses = drone_states[:, :2] 
+        cattle_poses = cattle_states[:, :2]
 
-        if done and self.is_evaluating:
-            self.evaluation_episode_trigger()
+        cattle_centroid = self.HerdCentroid()
+        drone_centroid = self.DroneCentroid()
+        cent_dist = np.linalg.norm(drone_centroid - cattle_centroid, axis=-1)
+        if cent_dist < self.TERMINATION_CENTROID_THRESH:
+            return True
 
-        return done
+        # effectiveness = self.eval_system.calculate_effectiveness(cattle_poses,drones_poses)
+
+        # if effectiveness > 80:
+        #     dists = np.linalg.norm(drones_poses[:, None, :] - cattle_poses[None, :, :], axis=-1)
+        #     min_dists = np.min(dists, axis=1) 
+        #     if np.all(min_dists < 1.0):
+        #         print("DRONE MISSION COMEPLTED!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        #         return True
+
+        return False
 
 
     ################################################################################
@@ -219,31 +222,46 @@ class CattleAviary(BaseRLAviary):
         bool
             True if the episode should be truncated, False otherwise.
         """
-        states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
         cattle_centroid = self.HerdCentroid()
         drone_centroid = self.DroneCentroid()
         cent_dist = np.linalg.norm(drone_centroid - cattle_centroid, axis=-1)
 
-        if cent_dist > self.MAX_DIST:
-            #print("FAIL 3!!!!!!!!!!!!!")
-            if self.is_evaluating:
-                self.evaluation_episode_trigger()
-            return True
-        
+        drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
+
+        drones_poses = drone_states[:, :2] 
+        cattle_poses = cattle_states[:, :2]
+
+        #check to make sure drones dont lose altitude
         for i in range(self.NUM_DRONES):
-            z = states[i][2]
+            z = drone_states[i][2]
             if abs(z - self.DRONE_TARGET_ALTITUDE) > self.MAX_ALT_ERROR:
-                # print("FAIL 2!!!!!!!!!!!!!")
                 if self.is_evaluating:
                     self.evaluation_episode_trigger()
-                return True       
+                    print("Drone Altitude loss")
+                return True    
+
+        #check to make sure drones dont fly to far apart
+        for i in range(self.NUM_DRONES):
+            pos_i = drones_poses[i]
+            other_dists = np.linalg.norm(drones_poses - pos_i, axis=1)
+            other_dists[i] = np.inf
+            nearest_two = np.partition(other_dists, 1)[:2]
+            if np.any(nearest_two > 8.0):
+                print(f"Drone {i} distance limit exceeded with nearest drone at {nearest_two}")
+                return True
+
+        #check to make sure centroid doesnt move far away
+        if cent_dist > self.MAX_DIST + 2:
+                print(f"Centroid distance exceeded with distance: {cent_dist}")
+                return True
         
         # --- Episode timeout ---self.step_counter
         elapsed_sec = self.step_counter / self.CTRL_FREQ
         if elapsed_sec > self.EPISODE_LEN_SEC:
             if self.is_evaluating:
                 self.evaluation_episode_trigger()
-            # print(f"FAIL: Episode exceeded {self.EPISODE_LEN_SEC} s")
+                print("Episode Time limit reached!")
             return True
 
         return False
@@ -264,38 +282,6 @@ class CattleAviary(BaseRLAviary):
         """
         return {"answer": 42} #### Calculated by the Deep Thought supercomputer in 7.5M years
     
-    ################################################################################
-    
-    def InteractionForce(self, xi, xj, a, c, d):
-        """
-        Computes the interaction force between two 3D positions. Original Attraction-Repulsion Force - Not Used
-
-        Parameters
-        ----------
-        xi : np.ndarray
-            Position of agent i, shape (3,)
-        xj : np.ndarray
-            Position of agent j, shape (3,)
-        a : float
-            Strength parameter
-        c : float
-            Distance scaling parameter
-        d : float
-            Desired distance between i and j
-            must be less than animal reaction radius r for robot-cow interaction
-
-        Returns
-        -------
-        np.ndarray
-            Force vector acting on agent i due to agent j, shape (3,)
-        """
-        delta = xi - xj                     # vector from j to i
-        distance = np.linalg.norm(delta)    # Euclidean distance
-        exponent = -(distance - d) / c
-        numerator = a * (1 - np.exp(exponent))
-        denominator = 1 + distance
-        force = (numerator / denominator) * delta
-        return force
     ################################################################################
 
     def SpacingRewardValue(self, r):
@@ -319,3 +305,4 @@ class CattleAviary(BaseRLAviary):
             fr0 = A * np.exp(-((r0 - d)**2) / (2 * c**2)) - B * np.exp(-(r0**2) / (2 * k**2))
             C = fr0 / np.exp(-lam * r0)
             return C * np.exp(-lam * r)
+        

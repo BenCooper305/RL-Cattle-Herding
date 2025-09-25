@@ -117,8 +117,8 @@ class evaluator():
             n = len(polygon)
 
             for i in range(n):
-                x1, y1, z1 = polygon[i]
-                x2, y2, z2 = polygon[(i + 1) % n]
+                x1, y1 = polygon[i]
+                x2, y2 = polygon[(i + 1) % n]
 
                 if y1 <= py:
                     if y2 > py and is_left((x1, y1), (x2, y2), (px, py)) > 0:

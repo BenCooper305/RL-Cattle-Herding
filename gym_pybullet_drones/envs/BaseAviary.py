@@ -30,7 +30,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
     def __init__(self,
                  drone_model: DroneModel=DroneModel.CF2X,
                  num_drones: int=2,
-                 num_cattel: int=1,
+                 num_cattle: int=1,
                  neighbourhood_radius: float=np.inf,
                  initial_xyzs=None,
                  initial_rpys=None,
@@ -104,17 +104,17 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self.PYB_TIMESTEP = 1. / self.PYB_FREQ
         #### Parameters ############################################
         self.NUM_DRONES = num_drones
-        self.NUM_CATTLE = num_cattel
+        self.NUM_CATTLE = num_cattle
         self.NEIGHBOURHOOD_RADIUS = neighbourhood_radius
         self.DRONE_TARGET_ALTITUDE = 0.45
         self.MAX_HULL_VERTICIES = 10
-        self.MAX_NUM_DRONES = 10    
+        self.MAX_NUM_DRONES = 8    
         self.MIN_NUM_DRONES = 4
         self.episode_num_drones = 0 #temp for holding number of drones for eah episode
         self.hullMarkers = []
         self.hullMarkerPositions = []
-        self.MAX_NEIGHBORS = 10 # set max number of nearby drones to observe
-        self.MAX_NEARBY_CATTLE = 8  # set max number of nearby cattle
+        self.MAX_NEIGHBORS = 8 # set max number of nearby drones to observe
+        self.MAX_NEARBY_CATTLE = 14  # set max number of nearby cattle
         self.INIT_XYZS = np.zeros((self.MAX_NUM_DRONES, 3))
         self.INIT_RPYS = np.zeros((self.MAX_NUM_DRONES, 3))
         self.Cattle_Spawn_Index = 0
@@ -245,6 +245,43 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self._startVideoRecording()
     
     ################################################################################
+    def initialize_drone_positions(self, spawn_origin=[0, 0], spacing=2):
+        """
+        Computes initial positions for all drones.
+        - For 4 or fewer drones: single row
+        - For more than 4 drones: two rows
+        All positions are positive.
+        Returns: np.array of shape (NUM_DRONES, 3)
+        """
+        positions = []
+
+        if self.NUM_DRONES <= 4:
+            # Single row along x-axis
+            start_x = (self.NUM_DRONES - 1) * spacing / 2  # start at 0 after shift
+            y = 0  # all positive
+            for i in range(self.NUM_DRONES):
+                x = i * spacing
+                positions.append([x, y, self.DRONE_TARGET_ALTITUDE])
+
+        else:
+            # Two rows
+            n_row1 = self.NUM_DRONES // 2
+            n_row2 = self.NUM_DRONES - n_row1
+            y_spacing = spacing
+
+            # Row 1
+            for i in range(n_row1):
+                x = i * spacing
+                y = 0  # first row
+                positions.append([x, y, self.DRONE_TARGET_ALTITUDE])
+
+            # Row 2
+            for i in range(n_row2):
+                x = i * spacing
+                y = y_spacing  # second row
+                positions.append([x, y, self.DRONE_TARGET_ALTITUDE])
+
+        return np.array(positions)
 
     def reset(self,
               seed : int = None,
@@ -270,17 +307,14 @@ class BaseAviary(gym.Env, MathematicalFlock):
         """
         # print(f"NEW EPISODE, last episode has {self.step_counter_A} steps")
         self.step_counter_A = 0
-        self.NUM_DRONES = random.randint(self.MIN_NUM_DRONES, self.MAX_NUM_DRONES)
+        #self.NUM_DRONES = random.randint(self.MIN_NUM_DRONES, self.MAX_NUM_DRONES)
         #### Create action and observation spaces ##################
         self.action_space = self._actionSpace()
         self.observation_space = self._observationSpace()
 
 
         #### Set initial poses #####################################
-        self.INIT_XYZS = np.array([
-            [j*4*self.L + 0.2, j*4*self.L + 0.2, self.DRONE_TARGET_ALTITUDE]
-            for j in range(self.NUM_DRONES)
-        ])
+        self.INIT_XYZS = self.initialize_drone_positions()
         self.INIT_RPYS = np.zeros((self.NUM_DRONES, 3))
         self.last_drones_pos = [np.zeros(2) for _ in range(self.NUM_DRONES)]
         self.action_buffer = [np.zeros((self.NUM_DRONES, self.action_space.shape[0]), dtype=np.float32)
@@ -385,11 +419,6 @@ class BaseAviary(gym.Env, MathematicalFlock):
         #### Save, preprocess, and clip the action to the max. RPM #
         else:
             clipped_action = np.reshape(self._preprocessAction(action), (self.NUM_DRONES, 4))
-                    #### flocking vel #######################
-            # if self.step_counter % 2 == 0:
-            #     flock_vel = self._flockingStep()                     # shape (NUM_DRONES, 3)
-            #     flock_vel = np.hstack([flock_vel, np.zeros((self.NUM_DRONES, 1))])  # now (NUM_DRONES, 4)
-            #     clipped_action = 0.7 * clipped_action + 0.3 * flock_vel
         #### Repeat for as many as the aggregate physics steps #####
         for _ in range(self.PYB_STEPS_PER_CTRL):
             #### Update and store the drones kinematic info for certain
@@ -424,8 +453,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         #### Update and store the drones kinematic information #####
         self._updateAndStoreKinematicInformation()
         #### Update the flocking ##############################
-        if self.step_counter_A % 2 == 0:
-            flock_vel = self._flockingStep() 
+        #self._flockingStep() 
         #### Prepare the return values #############################
         obs = self._computeObs()
         reward = self._computeReward()
@@ -568,6 +596,8 @@ class BaseAviary(gym.Env, MathematicalFlock):
                                     physicsClientId=self.CLIENT
                                     ) for i in range(self.NUM_DRONES)])
         
+
+
         self.Cattle_Spawn_Index += 1
         num_sims = len(self.cattle_spawn_data['simulations'])
         if self.Cattle_Spawn_Index >= num_sims:
@@ -579,72 +609,92 @@ class BaseAviary(gym.Env, MathematicalFlock):
 
         self.CATTLE_IDS = []
 
-        # for i in range(min(self.NUM_CATTLE, len(cows))):
-        #     cow_info = cows[i]
-        #     x, y = cow_info["x"], cow_info["y"]
-        #     z = 0.1  # keep z fixed
+        for i in range(min(self.NUM_CATTLE, len(cows))):
+            cow_info = cows[i]
+            x, y = cow_info["x"], cow_info["y"]
+            z = 0.1  # keep z fixed
+            cow_id = p.loadURDF(
+                "cube_no_rotation.urdf",
+                [x, y, z],
+                p.getQuaternionFromEuler([0, 0, 0]),
+                globalScaling=0.2,
+                physicsClientId=self.CLIENT
+            )
+            self.CATTLE_IDS.append(cow_id)
+
+                    # Minimum distance from origin
+        # min_radius = 1.0  
+        # # Maximum distance you want cattle to spawn
+        # max_radius = 3.0  
+
+        # # Pick a random angle [0, 2π)
+        # theta = np.random.uniform(0, 2*np.pi)
+        # # Pick a random radius [min_radius, max_radius)
+        # r = np.random.uniform(min_radius, max_radius)
+
+        # # Convert polar → Cartesian
+        # x = r * np.cos(theta)
+        # y = r * np.sin(theta)
+        # z = 0.1
+
+        # herd_center = np.array([x, y, z])
+
+        # for i in range(self.NUM_CATTLE):
+        #     # Random offset around the herd centre (e.g., within a 1m radius circle)
+        #     offset = np.random.uniform(low=0.0, high=1.0, size=2)
+        #     pos = herd_center[:2] + offset
         #     cow_id = p.loadURDF(
         #         "cube_no_rotation.urdf",
-        #         [x, y, z],
+        #         [pos[0], pos[1], herd_center[2]],  # keep z fixed at 0.1
         #         p.getQuaternionFromEuler([0, 0, 0]),
         #         globalScaling=0.2,
         #         physicsClientId=self.CLIENT
         #     )
         #     self.CATTLE_IDS.append(cow_id)
 
-                    # Minimum distance from origin
-        min_radius = 1.0  
-        # Maximum distance you want cattle to spawn
-        max_radius = 3.0  
+        #Cattle Cneoitrd Marker  
+        self.CattleCentroidMarkerVisual = p.createVisualShape(
+            shapeType=p.GEOM_SPHERE,
+            radius=0.2,
+            rgbaColor=[1,0,0,1],  # red sphere
+            physicsClientId=self.CLIENT
+        )
 
-        # Pick a random angle [0, 2π)
-        theta = np.random.uniform(0, 2*np.pi)
-        # Pick a random radius [min_radius, max_radius)
-        r = np.random.uniform(min_radius, max_radius)
-
-        # Convert polar → Cartesian
-        x = r * np.cos(theta)
-        y = r * np.sin(theta)
-        z = 0.1
-
-        herd_center = np.array([x, y, z])
-
-        for i in range(self.NUM_CATTLE):
-            # Random offset around the herd centre (e.g., within a 1m radius circle)
-            offset = np.random.uniform(low=0.0, high=1.0, size=2)
-            pos = herd_center[:2] + offset
-            cow_id = p.loadURDF(
-                "cube_no_rotation.urdf",
-                [pos[0], pos[1], herd_center[2]],  # keep z fixed at 0.1
-                p.getQuaternionFromEuler([0, 0, 0]),
-                globalScaling=0.2,
-                physicsClientId=self.CLIENT
-            )
-            self.CATTLE_IDS.append(cow_id)
-                
-        self.CattleCentroidMarker = (p.loadURDF("sphere2.urdf",
-                                    [0,0,-999],
-                                    p.getQuaternionFromEuler([0,0,0]),
-                                    globalScaling=0.2,
-                                    useFixedBase=True,
-                                    physicsClientId=self.CLIENT
-                                    ))
+        self.CattleCentroidMarker = p.createMultiBody(
+            baseMass=0,  # static
+            baseVisualShapeIndex=self.CattleCentroidMarkerVisual,
+            basePosition=[0, 0, -999],  # initially hidden
+            physicsClientId=self.CLIENT
+        )
         
-        self.DroneCentroidMarker = (p.loadURDF("sphere2.urdf",
-                                [0,0,-999],
-                                p.getQuaternionFromEuler([0,0,0]),
-                                globalScaling=0.1,
-                                useFixedBase=True,
-                                physicsClientId=self.CLIENT
-                                ))
+        #Drone centorid marker
+        self.DroneCentroidMarkerVisual = p.createVisualShape(
+            shapeType=p.GEOM_SPHERE,
+            radius=0.1,
+            rgbaColor=[0,1,0,1],  # red, fully opaque
+            physicsClientId=self.CLIENT
+        )
+        self.DroneCentroidMarker = p.createMultiBody(
+            baseMass=0,               # mass 0 = static
+            baseVisualShapeIndex=self.DroneCentroidMarkerVisual,
+            basePosition=[0,0,-999],
+            physicsClientId=self.CLIENT
+        )
         
-        self.HerdGoalMarker = (p.loadURDF("sphere2.urdf",
-                            [7,-5,1.2],
-                            p.getQuaternionFromEuler([0,0,0]),
-                            globalScaling=0.2,
-                            useFixedBase=True,
-                            physicsClientId=self.CLIENT
-                            ))
+        #Goal Marker
+        self.HerdGoalMarkerVisual = p.createVisualShape(
+            shapeType=p.GEOM_SPHERE,
+            radius=0.2,
+            rgbaColor=[0,1,0,1],  # green sphere
+            physicsClientId=self.CLIENT
+        )
+
+        self.HerdGoalMarker = p.createMultiBody(
+            baseMass=0,  # static
+            baseVisualShapeIndex=self.HerdGoalMarkerVisual,
+            basePosition=[7, -5, 1.2],
+            physicsClientId=self.CLIENT
+        )
 
         self.episode_drone_distances = [np.zeros(2, dtype=np.float32) for _ in range(self.NUM_DRONES)]
         states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
@@ -1335,33 +1385,11 @@ class BaseAviary(gym.Env, MathematicalFlock):
         # Compute drone controls to attach to cattle perimeter
         drone_controls, markerPoints = self.compute_drone_on_perimeter(cattle_states, drone_states, offset=0.3)
 
-        pos, _ = p.getBasePositionAndOrientation(self.HerdGoalMarker, physicsClientId=self.CLIENT)
-        goal_point = np.array(pos[:2])  # take x, y
-
-        for d_idx, control in enumerate(drone_controls):
-            drone_pos = drone_states[d_idx, 0:2]        # x,y position of drone
-            for d_idx in range(self.NUM_DRONES):
-                hull_point = markerPoints[d_idx % len(markerPoints)]
-
-
-            dist_to_hull = np.linalg.norm(drone_pos - hull_point)
-
-            if dist_to_hull < 0.35:  # --- threshold, tune as needed ---
-                # Move toward goal marker
-                desired_dir = goal_point - drone_pos
-                desired_dir = desired_dir / (np.linalg.norm(desired_dir) + 1e-6)
-                drone_controls[d_idx] = desired_dir * self.maxVelDrone
-
         #Calculate Control Influences
         local_clustering = MathematicalFlock._local_clustering(self, cattle_states, drone_states, k=0.25)                    #Keeps herd members grouped locally
         global_clustering = MathematicalFlock._global_clustering(self, cattle_states, drone_states)                         #Keeps herd together on a larger scale
         flocking = MathematicalFlock._flocking(self, cattle_states, drone_states)                                           #aligns herd velocoites (cohesion alignment rules)
         remain_in_bound_u = MathematicalFlock._calc_remain_in_boundary_control(self, cattle_states, self._boundary, k=5.0)  #pushes agents back inside simulation limits
-
-        #Density
-        #herd_density = MathematicalFlock._herd_density(herd_states=cattle_states,shepherd_states=drone_states)
-
-        #self.update_hull_postions(markerPoints)
 
         #Combine controls into acceleration
         qdot = (1 - self._flocking_condition) * local_clustering + \
@@ -1384,20 +1412,43 @@ class BaseAviary(gym.Env, MathematicalFlock):
                                 linearVelocity=linear_vel,
                                 angularVelocity=angular_vel,
                                 physicsClientId=self.CLIENT)
-            
-        for idx in range(self.NUM_DRONES):
-            speed = np.linalg.norm(drone_states[idx, 10:12])
-            if speed > self.maxVelDrone:
-                drone_states[idx, 10:12] = self.maxVelDrone * (drone_states[idx, 10:12] / speed)
-            
-        flock_vels = []
-        for idx, drone_id in enumerate(self.DRONE_IDS):
-            linear_vel = np.hstack([drone_states[idx, 10:12], 0])  # (x, y, 0)
-            flock_vels.append(linear_vel)
+        
 
-        return np.array(flock_vels)   # shape (NUM_DRONES, 3)
-    
     #######################################################################
+        # pos, _ = p.getBasePositionAndOrientation(self.HerdGoalMarker, physicsClientId=self.CLIENT)
+        # goal_point = np.array(pos[:2])  # take x, y
+
+        # for d_idx, control in enumerate(drone_controls):
+        #     drone_pos = drone_states[d_idx, 0:2]        # x,y position of drone
+        #     for d_idx in range(self.NUM_DRONES):
+        #         hull_point = markerPoints[d_idx % len(markerPoints)]
+
+
+        #     dist_to_hull = np.linalg.norm(drone_pos - hull_point)
+
+        #     if dist_to_hull < 0.35:  # --- threshold, tune as needed ---
+        #         # Move toward goal marker
+        #         desired_dir = goal_point - drone_pos
+        #         desired_dir = desired_dir / (np.linalg.norm(desired_dir) + 1e-6)
+        #         drone_controls[d_idx] = desired_dir * self.maxVelDrone
+                #self.update_hull_postions(markerPoints)
+            
+        # for idx in range(self.NUM_DRONES):
+        #     speed = np.linalg.norm(drone_states[idx, 10:12])
+        #     if speed > self.maxVelDrone:
+        #         drone_states[idx, 10:12] = self.maxVelDrone * (drone_states[idx, 10:12] / speed)
+            
+        # flock_vels = []
+        # for idx, drone_id in enumerate(self.DRONE_IDS):
+        #     linear_vel = np.hstack([drone_states[idx, 10:12], 0])  # (x, y, 0)
+        #     flock_vels.append(linear_vel)
+
+        # return np.array(flock_vels)   # shape (NUM_DRONES, 3)
+    
+
+
+
+        #######################################################################
     def get_hull_positions(self):
         return self.hullMarkerPositions
     
