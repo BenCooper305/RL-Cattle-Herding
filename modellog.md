@@ -41,3 +41,19 @@ rwd_exp-v2-1-0
 build on rwd_exp-v1-5-8 with centoird distacne reward, both with weithgin = 1
 
 Added Terminate Reward for centroid reaching herd
+
+rwd_exp-v3-1-0
+BUil;d on v2 with varyiosu number of drones and 16 cattle
+and uncomented this: drone_spacing_reward /= self.NUM_DRONES * 3  # 2 nearest + 1 centroid per drone
+
+wieghts:
+drone_to_drone_spacing = 0.8,
+centroid_distance= 1, 
+
+
+
+removed:
+        # dir_to_cattle = cattle_centroid[:2] - drones_poses[:, :2]
+        # dists_to_cattle = np.linalg.norm(dir_to_cattle, axis=1)
+        # dir_unit = np.where(dists_to_cattle[:, None] > 0, dir_to_cattle / dists_to_cattle[:, None], 0.0)
+        # centroid_approach_reward = np.mean(np.sum(drone_vel[:, :2] * dir_unit, axis=1)) / (self.MAX_VEL + 1e-6)

@@ -43,20 +43,20 @@ DEFAULT_RECORD_VIDEO = False
 DEFAULT_OUTPUT_FOLDER = 'models'
 DEFAULT_COLAB = False
 TARGET_REWARD = 99999   # reward threshold to stop training
-LOAD_FILE = "rwd_exp-v2-1-0/best_model.zip"        # e.g., "model-v6-2/best_model.zip" or None
+LOAD_FILE = "model-v10-1-0/best_model.zip"        # e.g., "model-v6-2/best_model.zip" or None
 
 DEFAULT_OBS = ObservationType('cokin') # collaborative kinematics
 DEFAULT_ACT = ActionType('vel')        # 'rpm' | 'pid' | 'vel' | 'one_d_rpm' | 'one_d_pid'
 DEFAULT_NUM_ENVS = 16
-DEFAULT_DRONES = 4
-DEFAULT_CATTLE = 3
+DEFAULT_DRONES = 8
+DEFAULT_CATTLE = 16
 
-MAX_TIMESTEPS = 1500000
+MAX_TIMESTEPS = 1000000
 EVAL_FILE = None
 EVALUATION_FREQUENCY = 2048
 
 EVALUATE_ONLY = False  # skip training, run evaluation only
-NUM_EVALUTION_EPS = 2
+NUM_EVALUTION_EPS = 25
 
 #Main Runner
 def run(
@@ -69,7 +69,7 @@ def run(
         local=True):
 
     # Unique folder for this training run
-    model_dir = os.path.join(output_folder, 'rwd_exp-v2-1-1')
+    model_dir = os.path.join(output_folder, 'model-v10-1-1')
     os.makedirs(model_dir, exist_ok=True)
 
 
@@ -183,10 +183,10 @@ def run(
         input("Press Enter to continue...")
 
     # Rollout for logging
-    # logger = Logger(logging_freq_hz=int(test_env.CTRL_FREQ),
-    #                 num_drones=DEFAULT_DRONES, 
-    #                 output_folder=output_folder,
-    #                 colab=colab)
+    logger = Logger(logging_freq_hz=int(test_env.CTRL_FREQ),
+                    num_drones=DEFAULT_DRONES, 
+                    output_folder=output_folder,
+                    colab=colab)
     
     obs, info = test_env.reset(seed=42, options={})
     start = time.time()
@@ -199,13 +199,13 @@ def run(
         obs2 = np.atleast_2d(obs)
         act2 = np.atleast_2d(action)
 
-        # for d in range(DEFAULT_DRONES):
-        #     logger.log(
-        #         drone=d,
-        #         timestamp=i / test_env.CTRL_FREQ,
-        #         state=np.hstack([obs2[d][0:3], np.zeros(4), obs2[d][3:15], act2[d]]),
-        #         control=np.zeros(12)
-        #     )
+        for d in range(DEFAULT_DRONES):
+            logger.log(
+                drone=d,
+                timestamp=i / test_env.CTRL_FREQ,
+                state=np.hstack([obs2[d][0:3], np.zeros(4), obs2[d][3:15], act2[d]]),
+                control=np.zeros(12)
+            )
 
         #test_env.render()
         sync(i, start, test_env.CTRL_TIMESTEP)
@@ -213,8 +213,8 @@ def run(
             obs, _ = test_env.reset(seed=42, options={})
             
     test_env.close()
-    # if plot:
-    #     logger.plot()
+    if plot:
+        logger.plot()
 
 
 # ---------------- CLI ---------------- #

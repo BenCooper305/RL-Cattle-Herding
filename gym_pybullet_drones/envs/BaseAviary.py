@@ -114,7 +114,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self.hullMarkers = []
         self.hullMarkerPositions = []
         self.MAX_NEIGHBORS = 8 # set max number of nearby drones to observe
-        self.MAX_NEARBY_CATTLE = 14  # set max number of nearby cattle
+        self.MAX_NEARBY_CATTLE = 16  # set max number of nearby cattle
         self.INIT_XYZS = np.zeros((self.MAX_NUM_DRONES, 3))
         self.INIT_RPYS = np.zeros((self.MAX_NUM_DRONES, 3))
         self.Cattle_Spawn_Index = 0
@@ -245,7 +245,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self._startVideoRecording()
     
     ################################################################################
-    def initialize_drone_positions(self, spawn_origin=[0, 0], spacing=2):
+    def initialize_drone_positions(self, spawn_origin=[0, 0], spacing=1.75):
         """
         Computes initial positions for all drones.
         - For 4 or fewer drones: single row
@@ -307,7 +307,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         """
         # print(f"NEW EPISODE, last episode has {self.step_counter_A} steps")
         self.step_counter_A = 0
-        #self.NUM_DRONES = random.randint(self.MIN_NUM_DRONES, self.MAX_NUM_DRONES)
+        self.NUM_DRONES = random.randint(self.MIN_NUM_DRONES, self.MAX_NUM_DRONES)
         #### Create action and observation spaces ##################
         self.action_space = self._actionSpace()
         self.observation_space = self._observationSpace()
@@ -453,7 +453,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         #### Update and store the drones kinematic information #####
         self._updateAndStoreKinematicInformation()
         #### Update the flocking ##############################
-        #self._flockingStep() 
+        self._flockingStep() 
         #### Prepare the return values #############################
         obs = self._computeObs()
         reward = self._computeReward()

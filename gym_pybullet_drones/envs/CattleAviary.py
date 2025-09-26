@@ -89,9 +89,9 @@ class CattleAviary(BaseRLAviary):
         self.MAX_ALT_ERROR = self.DRONE_TARGET_ALTITUDE * 0.4
 
         #Reward Paramaters
-        self.REWARD_WEIGHTS = dict(drone_to_drone_spacing = 1,
+        self.REWARD_WEIGHTS = dict(drone_to_drone_spacing = 0.7,
                                    centroid_distance= 1, 
-                                #    drone_to_cattle_spacing = 0.4
+                                   drone_to_cattle_spacing = 0.5
                                    )
         
         self.TERMINATION_CENTROID_THRESH = 0.25
@@ -106,8 +106,6 @@ class CattleAviary(BaseRLAviary):
         cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
 
         drones_poses = drone_states[:, :2]
-        drone_vel = drone_states[:, 10:12]
-
         cattle_poses = cattle_states[:, :2]
 
         #Drone to Drone Spacing
@@ -123,64 +121,61 @@ class CattleAviary(BaseRLAviary):
                 rwd = self.SpacingRewardValue(dist)
                 drone_to_drone_spacing_reward += rwd
 
-        # # Average over all drones and terms
-        # drone_spacing_reward /= self.NUM_DRONES * 3  # 2 nearest + 1 centroid per drone
+        #Average over all drones and terms
+        drone_to_drone_spacing_reward /= self.NUM_DRONES * 2  # 2 nearest
 
         #Centroid Distance Reward
+        # cent_dist = np.linalg.norm(drone_centroid - cattle_centroid)
+        # if self.prev_cent_dists is None:
+        #     self.prev_cent_dists = cent_dist
+        # cent_dist_change = self.prev_cent_dists - cent_dist
+        # centroid_distance_reward = cent_dist_change / (0.2 + 1e-6)
+        # self.prev_cent_dists = cent_dist
+
         cent_dist = np.linalg.norm(drone_centroid - cattle_centroid)
-        if self.prev_cent_dists is None:
-            self.prev_cent_dists = cent_dist
-        cent_dist_change = self.prev_cent_dists - cent_dist
-        centroid_distance_reward = cent_dist_change / (self.MAX_DIST + 1e-6)
-        self.prev_cent_dists = cent_dist
+        centroid_distance_reward = 1.0 - (cent_dist / (self.MAX_DIST + 1e-6))
+        centroid_distance_reward = np.clip(centroid_distance_reward, -1.0, 1.0)
 
+        #Drone to Cattle Spacing
+        drone_to_cattle_spacing_reward = 0.0
+        for i in range(self.NUM_DRONES):
+            pos_i = drones_poses[i]
+            dists_to_cattle = np.linalg.norm(cattle_poses - pos_i, axis=1)
+            closest_dist = np.min(dists_to_cattle)
+            drone_to_cattle_spacing_reward += self.SpacingRewardValue(closest_dist)
 
+        #Average over drones
+        drone_to_cattle_spacing_reward /= self.NUM_DRONES
 
-        # dir_to_cattle = cattle_centroid[:2] - drones_poses[:, :2]
-        # dists_to_cattle = np.linalg.norm(dir_to_cattle, axis=1)
-        # dir_unit = np.where(dists_to_cattle[:, None] > 0, dir_to_cattle / dists_to_cattle[:, None], 0.0)
-        # centroid_approach_reward = np.mean(np.sum(drone_vel[:, :2] * dir_unit, axis=1)) / (self.MAX_VEL + 1e-6)
-
-
-        # --- Drone to Cattle Spacing (closest cattle only) ---
-        # drone_cattle_spacing_reward = 0.0
-        # for i in range(self.NUM_DRONES):
-        #     pos_i = drones_poses[i]
-        #     dists_to_cattle = np.linalg.norm(cattle_poses - pos_i, axis=1)
-        #     closest_dist = np.min(dists_to_cattle)
-        #     drone_cattle_spacing_reward += self.SpacingRewardValue(closest_dist)
-        #     print(f"drones: {i}, drone distance to nearest cattle: {closest_dist}, drone reward: {drone_cattle_spacing_reward}")
-
-        # # Average over drones
-        # drone_cattle_spacing_reward /= self.NUM_DRONES
+        small_step_penalty = 0.01
 
         #Combine Rewards
         r = (
              centroid_distance_reward * self.REWARD_WEIGHTS["centroid_distance"]
              + drone_to_drone_spacing_reward * self.REWARD_WEIGHTS["drone_to_drone_spacing"]
-            #drone_cattle_spacing_reward * 1
+             + drone_to_cattle_spacing_reward * self.REWARD_WEIGHTS["drone_to_cattle_spacing"]
+             - small_step_penalty
         )
 
         #End of Episode Rewards
         done = self._computeTerminated() or self._computeTruncated()
         if done:
 
-            #reward for drone centorid being near cattle centroid
+            #Reward for drone centorid being near cattle centroid
             if cent_dist < self.TERMINATION_CENTROID_THRESH:
-                r+= 100
+                r+= 50
             else:
-                r -= cent_dist * 2
+                r -= cent_dist * 1.5
 
-        #     effectiveness = self.eval_system.calculate_effectiveness(cattle_poses,drones_poses)
-        #     if effectiveness == 100: #missive reward for herding all cattle
-        #         r += 100
-        #     elif effectiveness == 0: #negative reward for herding nothing
-        #         r -= 25
-        #     else:
-        #         r +=  effectiveness/10 #bonus 1 - 9 points for number of cattle herded
+            #Reward for effectivness
+            effectiveness = self.eval_system.calculate_effectiveness(cattle_poses,drones_poses)
+            if effectiveness == 100: #missive reward for herding all cattle
+                r += 100
+            elif effectiveness == 0: #negative reward for herding nothing
+                r -= 25
+            else:
+                r +=  effectiveness/10 #bonus 1 - 9 points for number of cattle herded
 
-        # print(f"reward given: {r}")
-        # print(f"####################")
         return float(r)
 
     ################################################################################
@@ -200,14 +195,14 @@ class CattleAviary(BaseRLAviary):
         if cent_dist < self.TERMINATION_CENTROID_THRESH:
             return True
 
-        # effectiveness = self.eval_system.calculate_effectiveness(cattle_poses,drones_poses)
+        effectiveness = self.eval_system.calculate_effectiveness(cattle_poses,drones_poses)
 
-        # if effectiveness > 80:
-        #     dists = np.linalg.norm(drones_poses[:, None, :] - cattle_poses[None, :, :], axis=-1)
-        #     min_dists = np.min(dists, axis=1) 
-        #     if np.all(min_dists < 1.0):
-        #         print("DRONE MISSION COMEPLTED!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        #         return True
+        if effectiveness > 80:
+            dists = np.linalg.norm(drones_poses[:, None, :] - cattle_poses[None, :, :], axis=-1)
+            min_dists = np.min(dists, axis=1) 
+            if np.all(min_dists < 1.0):
+                print("DRONE MISSION COMEPLTED!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                return True
 
         return False
 
@@ -247,7 +242,7 @@ class CattleAviary(BaseRLAviary):
             other_dists = np.linalg.norm(drones_poses - pos_i, axis=1)
             other_dists[i] = np.inf
             nearest_two = np.partition(other_dists, 1)[:2]
-            if np.any(nearest_two > 8.0):
+            if np.any(nearest_two > 5.0):
                 print(f"Drone {i} distance limit exceeded with nearest drone at {nearest_two}")
                 return True
 
