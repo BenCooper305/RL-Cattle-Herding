@@ -4,8 +4,8 @@ import yaml
 # Parameters
 num_simulations = 100
 num_cows = 16
-min_radius = 7.0
-max_radius = 10.0
+min_radius = 5.0
+max_radius = 8.0
 offset_range = (0.5, 1)
 z_fixed = 0.1
 min_cow_distance = 0.15

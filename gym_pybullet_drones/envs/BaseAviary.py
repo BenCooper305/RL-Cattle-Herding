@@ -113,7 +113,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self.episode_num_drones = 0 #temp for holding number of drones for eah episode
         self.hullMarkers = []
         self.hullMarkerPositions = []
-        self.MAX_NEIGHBORS = 8 # set max number of nearby drones to observe
+        self.MAX_NEIGHBORS = 4 # set max number of nearby drones to observe
         self.MAX_NEARBY_CATTLE = 16  # set max number of nearby cattle
         self.INIT_XYZS = np.zeros((self.MAX_NUM_DRONES, 3))
         self.INIT_RPYS = np.zeros((self.MAX_NUM_DRONES, 3))
@@ -305,9 +305,12 @@ class BaseAviary(gym.Env, MathematicalFlock):
             in each subclass for its format.
 
         """
+
+        if self.is_evaluating:
+            print("new episode!")
         # print(f"NEW EPISODE, last episode has {self.step_counter_A} steps")
         self.step_counter_A = 0
-        self.NUM_DRONES = random.randint(self.MIN_NUM_DRONES, self.MAX_NUM_DRONES)
+        #self.NUM_DRONES = random.randint(self.MIN_NUM_DRONES, self.MAX_NUM_DRONES)
         #### Create action and observation spaces ##################
         self.action_space = self._actionSpace()
         self.observation_space = self._observationSpace()
@@ -453,7 +456,8 @@ class BaseAviary(gym.Env, MathematicalFlock):
         #### Update and store the drones kinematic information #####
         self._updateAndStoreKinematicInformation()
         #### Update the flocking ##############################
-        self._flockingStep() 
+        if self.step_counter_A % 2 == 0:
+            self._flockingStep() 
         #### Prepare the return values #############################
         obs = self._computeObs()
         reward = self._computeReward()
@@ -1415,123 +1419,6 @@ class BaseAviary(gym.Env, MathematicalFlock):
         
 
     #######################################################################
-        # pos, _ = p.getBasePositionAndOrientation(self.HerdGoalMarker, physicsClientId=self.CLIENT)
-        # goal_point = np.array(pos[:2])  # take x, y
-
-        # for d_idx, control in enumerate(drone_controls):
-        #     drone_pos = drone_states[d_idx, 0:2]        # x,y position of drone
-        #     for d_idx in range(self.NUM_DRONES):
-        #         hull_point = markerPoints[d_idx % len(markerPoints)]
-
-
-        #     dist_to_hull = np.linalg.norm(drone_pos - hull_point)
-
-        #     if dist_to_hull < 0.35:  # --- threshold, tune as needed ---
-        #         # Move toward goal marker
-        #         desired_dir = goal_point - drone_pos
-        #         desired_dir = desired_dir / (np.linalg.norm(desired_dir) + 1e-6)
-        #         drone_controls[d_idx] = desired_dir * self.maxVelDrone
-                #self.update_hull_postions(markerPoints)
-            
-        # for idx in range(self.NUM_DRONES):
-        #     speed = np.linalg.norm(drone_states[idx, 10:12])
-        #     if speed > self.maxVelDrone:
-        #         drone_states[idx, 10:12] = self.maxVelDrone * (drone_states[idx, 10:12] / speed)
-            
-        # flock_vels = []
-        # for idx, drone_id in enumerate(self.DRONE_IDS):
-        #     linear_vel = np.hstack([drone_states[idx, 10:12], 0])  # (x, y, 0)
-        #     flock_vels.append(linear_vel)
-
-        # return np.array(flock_vels)   # shape (NUM_DRONES, 3)
-    
-
-
-
-        #######################################################################
-    def get_hull_positions(self):
-        return self.hullMarkerPositions
-    
-    def update_hull_postions(self, hull_points: np.ndarray):
-        if self.NUM_DRONES < len(hull_points):
-            return hull_points
-        
-        target_num = self.NUM_DRONES
-        current_num = len(hull_points)
-        extra_needed = target_num - current_num
-
-        #Simple linear interpolation between consecutive points
-        extra_points = []
-        for i in range(extra_needed):
-            idx = i % current_num
-            next_idx = (idx + 1) % current_num
-            p1, p2 = hull_points[idx], hull_points[next_idx]
-            new_point = (p1 + p2) / 2  # midpoint
-            extra_points.append(new_point)
-
-        extra_points = np.array(extra_points)
-
-        if extra_points.size > 0:
-            all_points = np.vstack([hull_points, extra_points])
-        else:
-            all_points = hull_points
-        self.update_hull_markers(all_points)
-        return all_points
-
-    #######################################################################
-
-    def update_hull_markers(self, markerPoints: np.ndarray, z_height: float = 0.6):
-        """
-        Robustly update PyBullet markers for the cattle convex hull.
-        - Reuses existing markers when possible
-        - Adds new markers if needed
-        - Keeps a maximum number of markers to prevent PyBullet ID errors
-        - Caches positions for fast reward computation
-        """
-
-        MAX_MARKERS = 10  # choose a safe upper limit
-
-        num_points = len(markerPoints)
-        num_markers = len(self.hullMarkers)
-
-        # Ensure we have enough markers in the simulation
-        while len(self.hullMarkers) < min(MAX_MARKERS, num_points):
-            marker_id = p.loadURDF(
-                "sphere2.urdf",
-                [0, 0, -10],  # initially hide new markers below ground
-                p.getQuaternionFromEuler([0, 0, 0]),
-                globalScaling=0.05,
-                useFixedBase=True,
-                physicsClientId=self.CLIENT
-            )
-            if marker_id < 0:
-                raise ValueError(f"Failed to load marker URDF")
-            self.hullMarkers.append(marker_id)
-
-        # Update marker positions (move unused markers far away)
-        self.hullMarkerPositions = []
-        for i, marker_id in enumerate(self.hullMarkers):
-            if i < num_points:
-                # active marker
-                target_pos = [markerPoints[i, 0], markerPoints[i, 1], z_height]
-            else:
-                # inactive marker: hide it below ground
-                target_pos = [0, 0, -10]
-
-            try:
-                p.resetBasePositionAndOrientation(
-                    marker_id,
-                    target_pos,
-                    p.getQuaternionFromEuler([0, 0, 0]),
-                    physicsClientId=self.CLIENT
-                )
-                # cache only active positions
-                if i < num_points:
-                    self.hullMarkerPositions.append(target_pos)
-            except Exception as e:
-                print(f"[Warning] failed to set position for marker {marker_id}: {e}")
-
-    #######################################################################
     def update_evaultion_metrics(self):
         """
         Called per simulation step to update evalution data
@@ -1560,7 +1447,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
             cattle_vel[cattle_idx] = cattle_states[cattle_idx, 10:12]
 
         ep_time = self.step_counter / self.CTRL_FREQ
-        effectiveness = self.eval_system.calculate_effectiveness(cattle_poses , self.get_hull_positions())
+        effectiveness = self.eval_system.calculate_effectiveness(cattle_poses , drone_poses)
         self.eval_system.append_timestep_data(self.episode_drone_distances, ep_time, effectiveness, drone_poses, cattle_poses, drone_vel, cattle_vel)
 
     #######################################################################
@@ -1575,7 +1462,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
 
         drone_vel = drone_states[:, 10:13]     # drone velocities
 
-        effectiveness = self.eval_system.calculate_effectiveness(cattle_poses , self.get_hull_positions())
+        effectiveness = self.eval_system.calculate_effectiveness(cattle_poses , drone_poses)
         self.eval_system.append_episode_data(self.episode_drone_distances, self.NUM_DRONES, ep_time, effectiveness)
     
     def evaluation_save(self):

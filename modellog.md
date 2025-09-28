@@ -57,3 +57,85 @@ removed:
         # dists_to_cattle = np.linalg.norm(dir_to_cattle, axis=1)
         # dir_unit = np.where(dists_to_cattle[:, None] > 0, dir_to_cattle / dists_to_cattle[:, None], 0.0)
         # centroid_approach_reward = np.mean(np.sum(drone_vel[:, :2] * dir_unit, axis=1)) / (self.MAX_VEL + 1e-6)
+
+model v10-1
+rewward:
+
+    def _computeReward(self):
+        #Data
+        cattle_centroid = self.HerdCentroid()
+        drone_centroid = self.DroneCentroid()
+        drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
+        cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
+
+        drones_poses = drone_states[:, :2]
+        cattle_poses = cattle_states[:, :2]
+
+        #Drone to Drone Spacing
+        drone_to_drone_spacing_reward = 0.0
+        for i in range(self.NUM_DRONES):
+            pos_i = drones_poses[i]
+
+            other_dists = np.linalg.norm(drones_poses[:] - pos_i, axis=1)
+            other_dists[i] = np.inf  # ignore self
+
+            nearest_two = np.partition(other_dists, 1)[:2]  # get two smallest distances
+            for dist in nearest_two:
+                rwd = self.SpacingRewardValue(dist)
+                drone_to_drone_spacing_reward += rwd
+
+        #Average over all drones and terms
+        drone_to_drone_spacing_reward /= self.NUM_DRONES * 2  # 2 nearest
+
+        #Centroid Distance Reward
+        # cent_dist = np.linalg.norm(drone_centroid - cattle_centroid)
+        # if self.prev_cent_dists is None:
+        #     self.prev_cent_dists = cent_dist
+        # cent_dist_change = self.prev_cent_dists - cent_dist
+        # centroid_distance_reward = cent_dist_change / (0.2 + 1e-6)
+        # self.prev_cent_dists = cent_dist
+
+        #Drone to Cattle Spacing
+        drone_to_cattle_spacing_reward = 0.0
+        for i in range(self.NUM_DRONES):
+            pos_i = drones_poses[i]
+            dists_to_cattle = np.linalg.norm(cattle_poses - pos_i, axis=1)
+            closest_dist = np.min(dists_to_cattle)
+            drone_to_cattle_spacing_reward += self.SpacingRewardValue(closest_dist)
+
+        #Average over drones
+        drone_to_cattle_spacing_reward /= self.NUM_DRONES
+
+        small_step_penalty = 0.01
+
+        #Combine Rewards
+        r = (
+             centroid_distance_reward * self.REWARD_WEIGHTS["centroid_distance"]
+             + drone_to_drone_spacing_reward * self.REWARD_WEIGHTS["drone_to_drone_spacing"]
+             + drone_to_cattle_spacing_reward * self.REWARD_WEIGHTS["drone_to_cattle_spacing"]
+             - small_step_penalty
+        )
+
+        #End of Episode Rewards
+        done = self._computeTerminated() or self._computeTruncated()
+        if done:
+
+            #Reward for drone centorid being near cattle centroid
+            if cent_dist < self.TERMINATION_CENTROID_THRESH:
+                r+= 50
+            else:
+                r -= cent_dist * 1.5
+
+            #Reward for effectivness
+            effectiveness = self.eval_system.calculate_effectiveness(cattle_poses,drones_poses)
+            if effectiveness == 100: #missive reward for herding all cattle
+                r += 100
+            elif effectiveness == 0: #negative reward for herding nothing
+                r -= 25
+            else:
+                r +=  effectiveness/10 #bonus 1 - 9 points for number of cattle herded
+
+        return float(r)
+
+v10-2 Flocking disabled Reward:
+

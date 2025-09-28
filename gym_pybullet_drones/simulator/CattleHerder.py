@@ -43,20 +43,20 @@ DEFAULT_RECORD_VIDEO = False
 DEFAULT_OUTPUT_FOLDER = 'models'
 DEFAULT_COLAB = False
 TARGET_REWARD = 99999   # reward threshold to stop training
-LOAD_FILE = "model-v10-1-0/best_model.zip"        # e.g., "model-v6-2/best_model.zip" or None
+LOAD_FILE = "model-v12-2-3/best_model.zip" #"model-v11-1-1/best_model.zip" #model-v10-2-4/best_model.zip"        # e.g., "model-v6-2/best_model.zip" or None
 
 DEFAULT_OBS = ObservationType('cokin') # collaborative kinematics
 DEFAULT_ACT = ActionType('vel')        # 'rpm' | 'pid' | 'vel' | 'one_d_rpm' | 'one_d_pid'
-DEFAULT_NUM_ENVS = 16
-DEFAULT_DRONES = 8
+DEFAULT_NUM_ENVS = 20
+DEFAULT_DRONES = 4
 DEFAULT_CATTLE = 16
 
-MAX_TIMESTEPS = 1000000
-EVAL_FILE = None
+MAX_TIMESTEPS = 500000
+EVAL_FILE = "model-v12-2-2"
 EVALUATION_FREQUENCY = 2048
 
-EVALUATE_ONLY = False  # skip training, run evaluation only
-NUM_EVALUTION_EPS = 25
+EVALUATE_ONLY = True  # skip training, run evaluation only
+NUM_EVALUTION_EPS = 2
 
 #Main Runner
 def run(
@@ -69,7 +69,7 @@ def run(
         local=True):
 
     # Unique folder for this training run
-    model_dir = os.path.join(output_folder, 'model-v10-1-1')
+    model_dir = os.path.join(output_folder, 'model-v12-2-4')
     os.makedirs(model_dir, exist_ok=True)
 
 

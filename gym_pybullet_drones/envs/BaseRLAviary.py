@@ -64,7 +64,7 @@ class BaseRLAviary(BaseAviary):
 
         """
         #### Create a buffer for the last .5 sec of actions ########
-        self.ACTION_BUFFER_SIZE = int(ctrl_freq//2)
+        self.ACTION_BUFFER_SIZE = int(0.15 * ctrl_freq)
         self.action_buffer = deque(maxlen=self.ACTION_BUFFER_SIZE)
         ####
         vision_attributes = True if obs == ObservationType.RGB else False
@@ -95,7 +95,7 @@ class BaseRLAviary(BaseAviary):
                          )
         #### Set a limit on the maximum target speed ###############
         if act == ActionType.VEL:
-            self.SPEED_LIMIT = 0.3 * self.MAX_SPEED_KMH * (1000/3600)
+            self.SPEED_LIMIT = 0.2 * self.MAX_SPEED_KMH * (1000/3600)
 
     ################################################################################
 
@@ -252,7 +252,7 @@ class BaseRLAviary(BaseAviary):
         hi = np.inf
 
         # Own state vector: x, y, z + roll, pitch, yaw + linear vel + angular vel
-        own_state_len = 3 + 3 + 3 + 3  # 12
+        own_state_len = 3 + 3 + 3  # 9
 
         # Total observation length: own state + neighbors + nearby cattle + action buffer
         obs_len = own_state_len + self.MAX_NEIGHBORS * 2 + self.MAX_NEARBY_CATTLE * 2 + self.ACTION_BUFFER_SIZE * self.ACTION_SPACE
@@ -276,7 +276,7 @@ class BaseRLAviary(BaseAviary):
         M = self.NUM_CATTLE
 
         # Determine the length of each drone's observation
-        obs_len_per_drone = 12 + self.MAX_NEIGHBORS*2 + self.MAX_NEARBY_CATTLE*2 + self.ACTION_BUFFER_SIZE * self.ACTION_SPACE
+        obs_len_per_drone = 9 + self.MAX_NEIGHBORS*2 + self.MAX_NEARBY_CATTLE*2 + self.ACTION_BUFFER_SIZE * self.ACTION_SPACE
 
         # Pre-allocate full observation array with zeros
         obs = np.zeros((self.MAX_NUM_DRONES, obs_len_per_drone), dtype=np.float32)
@@ -289,7 +289,6 @@ class BaseRLAviary(BaseAviary):
 
             # Own state: position, RPY, linear vel, angular vel
             obs_i = list(np.hstack([
-                drone_pos,            # x, y, z
                 obs_vec[7:10],        # roll, pitch, yaw
                 obs_vec[10:13],       # linear velocity vx, vy, vz
                 obs_vec[13:16],       # angular velocity wx, wy, wz
@@ -300,11 +299,16 @@ class BaseRLAviary(BaseAviary):
             for j in range(N):
                 if i == j:
                     continue
-                other_pos = self._getDroneStateVector(j)[0:2]  # x, y only
-                rel_neighbors.append(other_pos - drone_pos[0:2])
+                other_pos = self._getDroneStateVector(j)[0:2]
+                rel_neighbors.append((other_pos - drone_pos[0:2], np.linalg.norm(other_pos - drone_pos[0:2])))
+
+            rel_neighbors.sort(key=lambda x: x[1])
+            rel_neighbors = [vec for vec, dist in rel_neighbors[:self.MAX_NEIGHBORS]]
+
             while len(rel_neighbors) < self.MAX_NEIGHBORS:
                 rel_neighbors.append(np.zeros(2))
-            rel_neighbors = np.array(rel_neighbors[:self.MAX_NEIGHBORS]).flatten()
+
+            rel_neighbors = np.array(rel_neighbors).flatten()
             obs_i.extend(rel_neighbors)
 
             # Relative positions of nearby cattle

@@ -200,7 +200,7 @@ def plot_episode_data(eval_data, episode_idx=0):
 if __name__ == "__main__":
     print("Current working directory:", os.getcwd())
 
-    data = load_eval_data("RL_evaluation_data.pkl")
+    data = load_eval_data("v11-1-1_evaluation_data.pkl")
     print("Keys in data:", list(data.keys()))
     print("Number of episodes:", len(data["time_taken"]))
     
