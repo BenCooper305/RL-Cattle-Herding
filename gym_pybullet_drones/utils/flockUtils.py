@@ -2,11 +2,61 @@
 import math
 import networkx as nx
 
-# from scipy.spatial import Voronoi
-from scipy.spatial import ConvexHull
-import numpy as np
+
 import gym_pybullet_drones.utils.utils as utils
-from gym_pybullet_drones.utils.mathUtils import MathUtils
+import numpy as np
+
+
+
+class MathUtils():
+
+    EPSILON = 0.1
+    H = 0.2
+    A, B = 5, 5
+    C = np.abs(A-B)/np.sqrt(4*A*B)  # phi
+
+    R = 40
+    D = 40
+
+    @staticmethod
+    def sigma_1(z):
+        return z / np.sqrt(1 + z**2)
+
+    @staticmethod
+    def sigma_norm(z, e=EPSILON):
+        return (np.sqrt(1 + e * np.linalg.norm(z, axis=-1, keepdims=True)**2) - 1) / e
+
+    @staticmethod
+    def sigma_norm_grad(z, e=EPSILON):
+        return z/np.sqrt(1 + e * np.linalg.norm(z, axis=-1, keepdims=True)**2)
+
+    @staticmethod
+    def bump_function(z, h=H):
+        ph = np.zeros_like(z)
+        ph[z <= 1] = (1 + np.cos(np.pi * (z[z <= 1] - h)/(1 - h)))/2
+        ph[z < h] = 1
+        ph[z < 0] = 0
+        return ph
+
+    @staticmethod
+    def phi(z, a=A, b=B, c=C):
+        return ((a + b) * MathUtils.sigma_1(z + c) + (a - b)) / 2
+
+    @staticmethod
+    def phi_alpha(z, r=R, d=D):
+        r_alpha = MathUtils.sigma_norm([r])
+        d_alpha = MathUtils.sigma_norm([d])
+        return MathUtils.bump_function(z/r_alpha) * MathUtils.phi(z-d_alpha)
+
+    @staticmethod
+    def normalise(v, pre_computed=None):
+        n = pre_computed if pre_computed is not None else math.sqrt(
+            v[0]**2 + v[1]**2)
+        if n < 1e-13:
+            return np.zeros(2)
+        else:
+            return np.array(v) / n
+
 
 class MathematicalFlock(): #Removed Behavior inheritance
     C1_alpha = 3
@@ -97,21 +147,18 @@ class MathematicalFlock(): #Removed Behavior inheritance
             herd_densities[idx] = density
         return herd_densities
 
-    ###MODIFIED###
     def _global_clustering(self, cattle_states: np.ndarray, drone_states: np.ndarray) -> np.ndarray:
         u = np.zeros((cattle_states.shape[0], 2))
         for idx in range(cattle_states.shape[0]):
             qi = cattle_states[idx, :2]
-            pi = cattle_states[idx, 10:12] # velocity
+            pi_full = cattle_states[idx, 10:13]
+            pi = pi_full[:2]
 
-            # Group consensus term
             target = self._consensus_pose
-            # if self._follow_cursor:
-            #     target = np.array(pygame.mouse.get_pos())
-
             u_gamma = self._calc_group_objective_control(target=target, qi=qi, pi=pi)
             u[idx] = u_gamma
         return u
+
 
 
     def _local_clustering(self, cattle_states: np.ndarray, drone_states: np.ndarray, k: float) -> np.ndarray:
@@ -169,35 +216,33 @@ class MathematicalFlock(): #Removed Behavior inheritance
         return all_gamma
 
     def _calc_remain_in_boundary_control(self, cattle_states, boundary: np.ndarray, k: float):
-        x_min = boundary['x_min']
-        x_max = boundary['x_max']
-        y_min = boundary['y_min']
-        y_max = boundary['y_max']
+        x_min = boundary['x_min']; x_max = boundary['x_max']
+        y_min = boundary['y_min']; y_max = boundary['y_max']
 
-        u = np.zeros_like(cattle_states[:, 2:4])
+        u = np.zeros((cattle_states.shape[0], 2))  # XY control
         for idx in range(cattle_states.shape[0]):
             qi = cattle_states[idx, :2]
-
             if qi[0] < x_min:
                 u[idx, :] += k * np.array([1.0, 0.0])
-
             elif qi[0] > x_max:
                 u[idx, :] += k * np.array([-1.0, 0.0])
 
             if qi[1] < y_min:
                 u[idx, :] += k * np.array([0.0, 1.0])
-
             elif qi[1] > y_max:
                 u[idx, :] += k * np.array([0.0, -1.0])
         return u
 
+
     def _calc_flocking_control(self, idx: int, neighbors_idxs: np.ndarray, cattle_states: np.ndarray):
         qi = cattle_states[idx, :2]
-        pi = cattle_states[idx, 2:4]
+        pi_full = cattle_states[idx, 10:13]
+        pi = pi_full[:2]
         u_alpha = np.zeros(2)
         if sum(neighbors_idxs) > 0:
             qj = cattle_states[neighbors_idxs, :2]
-            pj = cattle_states[neighbors_idxs, 2:4]
+            pj_full = cattle_states[neighbors_idxs, 10:13]
+            pj = pj_full[:, :2]
 
             alpha_grad = self._gradient_term(
                 c=MathematicalFlock.C2_alpha, qi=qi, qj=qj,
@@ -212,15 +257,6 @@ class MathematicalFlock(): #Removed Behavior inheritance
             u_alpha = alpha_grad + alpha_consensus
         return u_alpha
 
-    def _calc_density(self, idx: int,
-                      neighbors_idxs: np.ndarray,
-                      herd_states: np.ndarray):
-        qi = herd_states[idx, :2]
-        density = np.zeros(2)
-        if sum(neighbors_idxs) > 0:
-            qj = herd_states[neighbors_idxs, :2]
-            density = self._density(si=qi, sj=qj, k=0.375)
-        return density
     
     #REMOVED _calc_obstacle_avoidance_control()
 
@@ -237,46 +273,36 @@ class MathematicalFlock(): #Removed Behavior inheritance
                                        delta_adj_matrix: np.ndarray,
                                        cattle_states: np.ndarray,
                                        drone_states: np.ndarray):
-        """
-        Compute control input on a single cow due to nearby drones.
-        Mimics the behavior of 'induce_delta_agent' using arrays only.
-        """
-        qi = cattle_states[idx, :2]   # cow position
-        pi = cattle_states[idx, 10:12] # velocity
-        u_delta = np.zeros(2)         # initialize control
+        qi = cattle_states[idx, :2]                 # 2D position
+        pi_full = cattle_states[idx, 10:13]         # 3D velocity
+        pi = pi_full[:2]                            # use 2D velocity for flocking
+        u_delta = np.zeros(2)
 
-        #Only compute if any drones are active
         if np.any(drones_idxs):
-            # Find nearby drones from adjacency matrix
             delta_in_radius = np.where(delta_adj_matrix[idx] > 0)[0]
-
             if len(delta_in_radius) > 0:
                 delta_agents = []
-
                 for d_idx in delta_in_radius:
-                    yk = drone_states[d_idx, :2]  # drone position
-                    pk = drone_states[d_idx, 10:12] 
+                    yk = drone_states[d_idx, :2]
+                    pk_full = drone_states[d_idx, 10:13]
+                    pk = pk_full[:2]
 
                     diff = qi - yk
-                    d = np.linalg.norm(diff) + 1e-6  # distance
-
-                    #scaling factor
+                    d = np.linalg.norm(diff) + 1e-6
                     r = self._r if hasattr(self, "_r") else 1.0
-                    mu = min(d / r, 1.0)  # clipped to [0,1]
+                    mu = min(d / r, 1.0)
 
-                    #unit vector from drone to cow
                     ak = diff / d
-                    P = np.eye(2) - np.outer(ak, ak)  # project perpendicular
+                    P = np.eye(2) - np.outer(ak, ak)
 
-                    #blended position and projected velocity
                     qik = mu * qi + (1 - mu) * yk
-                    pik = mu * (P @ pi)
+                    pik = mu * (P @ pi)   # projected bull velocity component
 
                     delta_agents.append(np.hstack((qik, pik)))
 
-                delta_agents = np.array(delta_agents)
+                delta_agents = np.array(delta_agents)  # shape (M,4)
                 qid = delta_agents[:, :2]
-                pid = delta_agents[:, 2:4]
+                pid = delta_agents[:, 2:4]             # fixed slice
 
                 delta_grad = self._gradient_term(c=MathematicalFlock.C2_beta,
                                                 qi=qi, qj=qid,
@@ -290,13 +316,12 @@ class MathematicalFlock(): #Removed Behavior inheritance
 
                 u_delta = delta_grad + delta_consensus
 
-        #predator avoidance
         u_delta += self._predator_avoidance_term(si=qi,
                                                 r=self._danger_range,
                                                 k=650000,
                                                 drone_states=drone_states)
-
         return u_delta
+
 
 
     def _gradient_term(self, c: float, qi: np.ndarray, qj: np.ndarray, r: float, d: float):
@@ -304,10 +329,13 @@ class MathematicalFlock(): #Removed Behavior inheritance
         return c * np.sum(MathUtils.phi_alpha(MathUtils.sigma_norm(qj-qi), r=r, d=d)*n_ij, axis=0)
 
     def _velocity_consensus_term(self, c: float, qi: np.ndarray,
-                                 qj: np.ndarray, pi: np.ndarray,
-                                 pj: np.ndarray, r: float):
-        a_ij = self._get_a_ij(qi, qj, r)
-        return c * np.sum(a_ij*(pj-pi), axis=0)
+                                qj: np.ndarray, pi: np.ndarray,
+                                pj: np.ndarray, r: float):
+        # a_ij should be (M,) or (M,1) broadcasting to (M,2)
+        a_ij = self._get_a_ij(qi, qj, r)   # ensure this returns shape (M,) or (M,1)
+        arr = pj - pi                       # pj: (M,2), pi: (2,)
+        return c * np.sum(a_ij * arr, axis=0)
+
 
     def _group_objective_term(self, c1: float, c2: float, pos: np.ndarray, qi: np.ndarray, pi: np.ndarray):
         return -c1 * MathUtils.sigma_1(qi - pos) - c2 * (pi)
@@ -352,75 +380,3 @@ class MathematicalFlock(): #Removed Behavior inheritance
             w = (1/(1 + k * np.linalg.norm(sij))) * utils.unit_vector(sij)
             w_sum += w
         return w_sum
-
-
-    def compute_drone_on_perimeter(self, cattle_states: np.ndarray, drone_states: np.ndarray,
-                                offset: float = 2.0) -> np.ndarray:
-        """
-        Compute drone control so they attach themselves to the cattle lattice perimeter.
-        - offset: how far outside the hull (positive = outside, negative = inside)
-        Returns Nx2 control vectors for drones.
-        """
-        num_drones = drone_states.shape[0]
-        if num_drones == 0:
-            return np.zeros((0, 2))
-
-        num_cattle = cattle_states.shape[0]
-        if num_cattle == 0:
-            return np.zeros((num_drones, 2))
-
-        points = cattle_states[:, :2]
-
-        # Try convex hull if possible
-        hull_points = None
-        if num_cattle >= 3:
-            try:
-                hull = ConvexHull(points, qhull_options='QJ')  # jiggle to avoid flat simplex
-                hull_points = cattle_states[hull.vertices, :2]
-            except Exception:
-                hull_points = None
-
-        # Fallback if convex hull fails or not enough points
-        if hull_points is None:
-            if num_cattle == 1:
-                # Single point: place all drones in a circle around the cattle
-                center = points[0]
-                angles = np.linspace(0, 2*np.pi, num_drones, endpoint=False)
-                hull_points = np.array([center + offset * np.array([np.cos(a), np.sin(a)]) for a in angles])
-            else:
-                # Two or degenerate points: interpolate linearly between min and max
-                x_min, y_min = points.min(axis=0)
-                x_max, y_max = points.max(axis=0)
-                hull_points = np.linspace([x_min, y_min], [x_max, y_max], max(num_drones, 2))
-
-        # Assign drones to hull points (round-robin if more drones than hull points)
-        targets = []
-        center = points.mean(axis=0)
-        for i in range(num_drones):
-            target_idx = i % len(hull_points)
-            direction = hull_points[target_idx] - center
-            norm = np.linalg.norm(direction) + 1e-6
-            direction_unit = direction / norm
-            target = hull_points[target_idx] + offset * direction_unit
-            targets.append(target)
-        targets = np.array(targets)
-
-        # Compute control vectors toward targets
-        u = np.zeros((num_drones, 2))
-        for i in range(num_drones):
-            qi = drone_states[i, :2]      # position
-            pi = drone_states[i, 10:12]     # velocity
-            target = targets[i]
-
-            # Pull to perimeter target
-            u_gamma = -self.C1_gamma * MathUtils.sigma_1(qi - target) - self.C2_gamma * pi
-            u[i] += u_gamma
-
-        return u, hull_points
-
-    
-    #REMOVED _pairwise_potentia_vec
-    #REMOVED _pairwise_potential_mag
-    #REMOVED _get_herd_laplacian_matrix
-    #REMOVED _inv_potential
-    #REMOVED _potential

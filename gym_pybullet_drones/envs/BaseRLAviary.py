@@ -95,7 +95,7 @@ class BaseRLAviary(BaseAviary):
                          )
         #### Set a limit on the maximum target speed ###############
         if act == ActionType.VEL:
-            self.SPEED_LIMIT = 0.2 * self.MAX_SPEED_KMH * (1000/3600)
+            self.SPEED_LIMIT = 0.3 * self.MAX_SPEED_KMH * (1000/3600)
 
     ################################################################################
 
@@ -287,7 +287,7 @@ class BaseRLAviary(BaseAviary):
             obs_vec = self._getDroneStateVector(i)
             drone_pos = obs_vec[0:3]
 
-            # Own state: position, RPY, linear vel, angular vel
+            # Own state: RPY, linear vel, angular vel
             obs_i = list(np.hstack([
                 obs_vec[7:10],        # roll, pitch, yaw
                 obs_vec[10:13],       # linear velocity vx, vy, vz

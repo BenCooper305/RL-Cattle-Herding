@@ -13,7 +13,7 @@ Monitor logs:
 
     $ tensorboard --logdir models/model-v9-0/tb
 
-    tensorboard --logdir /home/ben/ros_ws/src/RL-Cattle-Herding/gym_pybullet_drones/simulator/models/model-v3-1
+    tensorboard --logdir /home/ben/ros_ws/src/RL-Cattle-Herding/gym_pybullet_drones/simulator/models/model-v12-3-3
 -------
 """
 
@@ -42,21 +42,24 @@ DEFAULT_GUI = True
 DEFAULT_RECORD_VIDEO = False
 DEFAULT_OUTPUT_FOLDER = 'models'
 DEFAULT_COLAB = False
+
 TARGET_REWARD = 99999   # reward threshold to stop training
-LOAD_FILE = "model-v12-2-3/best_model.zip" #"model-v11-1-1/best_model.zip" #model-v10-2-4/best_model.zip"        # e.g., "model-v6-2/best_model.zip" or None
+LOAD_FILE = None #"model-v12-3-3/best_model.zip"
+NEW_MODEL_NAME = 'model-v13-1-1'
 
 DEFAULT_OBS = ObservationType('cokin') # collaborative kinematics
 DEFAULT_ACT = ActionType('vel')        # 'rpm' | 'pid' | 'vel' | 'one_d_rpm' | 'one_d_pid'
-DEFAULT_NUM_ENVS = 20
-DEFAULT_DRONES = 4
+DEFAULT_NUM_ENVS = 12
+DEFAULT_DRONES = 12
 DEFAULT_CATTLE = 16
 
-MAX_TIMESTEPS = 500000
-EVAL_FILE = "model-v12-2-2"
-EVALUATION_FREQUENCY = 2048
+MAX_TIMESTEPS = 1000000
 
 EVALUATE_ONLY = True  # skip training, run evaluation only
-NUM_EVALUTION_EPS = 2
+NUM_EVALUTION_EPS = 1
+EVAL_FILE = "model-v13-1-1/"
+EVALUATION_FREQUENCY = 2048
+
 
 #Main Runner
 def run(
@@ -69,7 +72,7 @@ def run(
         local=True):
 
     # Unique folder for this training run
-    model_dir = os.path.join(output_folder, 'model-v12-2-4')
+    model_dir = os.path.join(output_folder, NEW_MODEL_NAME)
     os.makedirs(model_dir, exist_ok=True)
 
 
@@ -148,14 +151,14 @@ def run(
         best_model_path = os.path.join(model_dir, "best_model.zip")
     else:
          model_dir = os.path.join(output_folder, EVAL_FILE)
-         best_model_path = os.path.join(EVAL_FILE, "best_model.zip")
+         best_model_path = os.path.join(model_dir, "best_model.zip")
 
     if os.path.isfile(best_model_path):
         model = PPO.load(best_model_path)
         print(f"[LOG] Loaded best model from {best_model_path}")
     else:
         print(f"[ERROR] No best model found at {best_model_path}, using final_model.zip")
-        model = PPO.load(os.path.join(model_dir, "final_model.zip"))
+        model = PPO.load(os.path.join(model_dir, "final_model"))
 
     # Evaluation environments
     test_env = CattleAviary(

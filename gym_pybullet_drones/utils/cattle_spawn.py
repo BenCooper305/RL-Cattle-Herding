@@ -4,11 +4,11 @@ import yaml
 # Parameters
 num_simulations = 100
 num_cows = 16
-min_radius = 5.0
-max_radius = 8.0
-offset_range = (0.5, 1)
+min_radius = 8.0
+max_radius = 13.0
+offset_range = (-2, 2)
 z_fixed = 0.1
-min_cow_distance = 0.15
+min_cow_distance = 0.8
 
 output_file = "cattle_positions.yaml"
 
@@ -33,7 +33,11 @@ for sim in range(1, num_simulations + 1):
 
             if is_far_enough(pos, cow_positions, min_cow_distance):
                 cow_positions.append(pos)
-                cows.append({"id": cow, "x": float(pos[0]), "y": float(pos[1])})
+                cows.append({
+                    "id": cow,
+                    "x": round(float(pos[0]), 3),
+                    "y": round(float(pos[1]), 3)
+                })
                 break
     
     data["simulations"].append({"id": sim, "cows": cows})

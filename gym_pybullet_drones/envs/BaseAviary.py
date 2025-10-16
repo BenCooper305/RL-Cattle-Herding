@@ -11,7 +11,7 @@ import pybullet as p
 import gymnasium as gym
 import xml.etree.ElementTree as etxml
 import gym_pybullet_drones.utils.utils as utils
-from gym_pybullet_drones.utils.evaluation import evaluator 
+from gym_pybullet_drones.utils.evaluation import evaluator, evaluate_herding_effectiveness
 from PIL import Image
 from sys import platform
 from datetime import datetime
@@ -49,7 +49,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         MathematicalFlock.__init__(self,
                                    follow_cursor=True,
                                    sensing_range=999,
-                                   danger_range=0.1,
+                                   danger_range=1.1,
                                    initial_consensus=1)
         """Initialization of a generic aviary environment.
 
@@ -107,12 +107,9 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self.NUM_CATTLE = num_cattle
         self.NEIGHBOURHOOD_RADIUS = neighbourhood_radius
         self.DRONE_TARGET_ALTITUDE = 0.45
-        self.MAX_HULL_VERTICIES = 10
-        self.MAX_NUM_DRONES = 8    
-        self.MIN_NUM_DRONES = 4
+        self.MAX_NUM_DRONES = 12    
+        self.MIN_NUM_DRONES = 6
         self.episode_num_drones = 0 #temp for holding number of drones for eah episode
-        self.hullMarkers = []
-        self.hullMarkerPositions = []
         self.MAX_NEIGHBORS = 4 # set max number of nearby drones to observe
         self.MAX_NEARBY_CATTLE = 16  # set max number of nearby cattle
         self.INIT_XYZS = np.zeros((self.MAX_NUM_DRONES, 3))
@@ -310,7 +307,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
             print("new episode!")
         # print(f"NEW EPISODE, last episode has {self.step_counter_A} steps")
         self.step_counter_A = 0
-        #self.NUM_DRONES = random.randint(self.MIN_NUM_DRONES, self.MAX_NUM_DRONES)
+        self.NUM_DRONES = random.randint(self.MIN_NUM_DRONES, self.MAX_NUM_DRONES)
         #### Create action and observation spaces ##################
         self.action_space = self._actionSpace()
         self.observation_space = self._observationSpace()
@@ -464,7 +461,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         terminated = self._computeTerminated()
         truncated = self._computeTruncated()
         info = self._computeInfo() 
-        self.update_evaultion_metrics()
+        self.update_evaluation_metrics()
         #### Advance the step counter ##############################
         self.step_counter = self.step_counter + (1 * self.PYB_STEPS_PER_CTRL)
         return obs, reward, terminated, truncated, info
@@ -582,6 +579,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
         self.cattle_rpy = np.zeros((self.NUM_CATTLE, 3))
         self.cattle_vel = np.zeros((self.NUM_CATTLE, 3))
         self.cattle_ang_v = np.zeros((self.NUM_CATTLE, 3))
+        self.maxVelCattle = 0.2
         ###########################################################
         if self.PHYSICS == Physics.DYN:
             self.rpy_rates = np.zeros((self.NUM_DRONES, 3))
@@ -617,44 +615,29 @@ class BaseAviary(gym.Env, MathematicalFlock):
             cow_info = cows[i]
             x, y = cow_info["x"], cow_info["y"]
             z = 0.1  # keep z fixed
+
+            # Random rotation around Z-axis
+            angle = np.pi * (2 * np.random.rand() - 1)
+            quat = p.getQuaternionFromEuler([0, 0, angle])
+
+            # Spawn URDF
             cow_id = p.loadURDF(
-                "cube_no_rotation.urdf",
+                "cube_no_rotation.urdf",  # or another cube URDF
                 [x, y, z],
-                p.getQuaternionFromEuler([0, 0, 0]),
-                globalScaling=0.2,
+                quat,
+                globalScaling=0.175,
                 physicsClientId=self.CLIENT
             )
             self.CATTLE_IDS.append(cow_id)
 
-                    # Minimum distance from origin
-        # min_radius = 1.0  
-        # # Maximum distance you want cattle to spawn
-        # max_radius = 3.0  
-
-        # # Pick a random angle [0, 2π)
-        # theta = np.random.uniform(0, 2*np.pi)
-        # # Pick a random radius [min_radius, max_radius)
-        # r = np.random.uniform(min_radius, max_radius)
-
-        # # Convert polar → Cartesian
-        # x = r * np.cos(theta)
-        # y = r * np.sin(theta)
-        # z = 0.1
-
-        # herd_center = np.array([x, y, z])
-
-        # for i in range(self.NUM_CATTLE):
-        #     # Random offset around the herd centre (e.g., within a 1m radius circle)
-        #     offset = np.random.uniform(low=0.0, high=1.0, size=2)
-        #     pos = herd_center[:2] + offset
-        #     cow_id = p.loadURDF(
-        #         "cube_no_rotation.urdf",
-        #         [pos[0], pos[1], herd_center[2]],  # keep z fixed at 0.1
-        #         p.getQuaternionFromEuler([0, 0, 0]),
-        #         globalScaling=0.2,
-        #         physicsClientId=self.CLIENT
-        #     )
-        #     self.CATTLE_IDS.append(cow_id)
+            # Assign initial random velocity (mimicking auto_spawn_herds)
+            vel_angle = np.pi * (2 * np.random.rand() - 1)
+            linear_vel = self.maxVelCattle * np.array([np.cos(vel_angle), np.sin(vel_angle), 0.0])
+            p.resetBaseVelocity(
+                cow_id,
+                linearVelocity=linear_vel,
+                physicsClientId=self.CLIENT
+            )
 
         #Cattle Cneoitrd Marker  
         self.CattleCentroidMarkerVisual = p.createVisualShape(
@@ -1371,55 +1354,59 @@ class BaseAviary(gym.Env, MathematicalFlock):
 
     def _flockingStep(self):
         self._flocking_condition = True
-        self._dt = 0.2
-        self._dt_sqr = 0.1
-        self.maxVelCattle = 0.6
-        self.maxVelDrone = 0.6
+        self._dt = 0.05
+        self._dt_sqr = self._dt ** 2
 
         self._boundary = {
-            'x_min': 300,
-            'x_max': 1200,
-            'y_min': 300,
-            'y_max': 500,
+            'x_min': 30,
+            'x_max': 120,
+            'y_min': 30,
+            'y_max': 50,
         }
+            # --- Persistent velocity drift for exploration ---
+        if not hasattr(self, "_vel_drift"):
+            # small random initial velocities per cow
+            self._vel_drift = np.random.uniform(-0.1, 0.1, size=(self.NUM_CATTLE, 2))
 
+        # --- Get current states ---
         cattle_states = np.array([self._getCowStateVector(i) for i in range(self.NUM_CATTLE)])
         drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
-        
-        # Compute drone controls to attach to cattle perimeter
-        drone_controls, markerPoints = self.compute_drone_on_perimeter(cattle_states, drone_states, offset=0.3)
 
-        #Calculate Control Influences
-        local_clustering = MathematicalFlock._local_clustering(self, cattle_states, drone_states, k=0.25)                    #Keeps herd members grouped locally
-        global_clustering = MathematicalFlock._global_clustering(self, cattle_states, drone_states)                         #Keeps herd together on a larger scale
-        flocking = MathematicalFlock._flocking(self, cattle_states, drone_states)                                           #aligns herd velocoites (cohesion alignment rules)
-        remain_in_bound_u = MathematicalFlock._calc_remain_in_boundary_control(self, cattle_states, self._boundary, k=5.0)  #pushes agents back inside simulation limits
+        # --- Small random acceleration each step ---
+        noise = np.random.normal(0, 0.02, size=self._vel_drift.shape)
+        self._vel_drift += noise
 
-        #Combine controls into acceleration
+        # --- Calculate flocking controls ---
+        local_clustering = MathematicalFlock._local_clustering(self, cattle_states, drone_states, k=0.5)
+        global_clustering = MathematicalFlock._global_clustering(self, cattle_states, drone_states)
+        flocking = MathematicalFlock._flocking(self, cattle_states, drone_states)
+        remain_in_bound_u = MathematicalFlock._calc_remain_in_boundary_control(self, cattle_states, self._boundary, k=5.0)
+
+        # --- Combine influences with velocity drift ---
+        #qdot = local_clustering + flocking + remain_in_bound_u + self._vel_drift
         qdot = (1 - self._flocking_condition) * local_clustering + \
-                flocking + self._flocking_condition * global_clustering + \
-                (1 - self._flocking_condition) * remain_in_bound_u
-        
+            flocking + self._flocking_condition * global_clustering + \
+            (1 - self._flocking_condition) * remain_in_bound_u
+
+        # --- Apply acceleration to velocity ---
         cattle_states[:, 10:12] += qdot * self._dt_sqr
-        drone_states[:, 10:12] += drone_controls * self._dt_sqr
 
-        for idx in range(self.NUM_CATTLE):
-            speed = np.linalg.norm(cattle_states[idx, 10:12])
+        # --- Clip max speed ---
+        speeds = np.linalg.norm(cattle_states[:, 10:12], axis=1)
+        for idx, speed in enumerate(speeds):
             if speed > self.maxVelCattle:
-                cattle_states[idx, 10:12] = self.maxVelCattle * (cattle_states[idx, 10:12] / speed)
+                cattle_states[idx, 10:12] *= self.maxVelCattle / speed
 
-        # Apply velocities to PyBullet
+        # --- Apply velocities to PyBullet ---
         for idx, cattle_id in enumerate(self.CATTLE_IDS):
-            linear_vel = np.hstack([cattle_states[idx, 10:12], 0.0])  # x,y, z=0 for 2D herd
-            angular_vel = [0.0, 0.0, 0.0]  # optional, no rotation for now
-            p.resetBaseVelocity(cattle_id,
-                                linearVelocity=linear_vel,
-                                angularVelocity=angular_vel,
-                                physicsClientId=self.CLIENT)
-        
+            linear_vel = np.hstack([cattle_states[idx, 10:12], 0.0])
+            p.resetBaseVelocity(cattle_id, linearVelocity=linear_vel, physicsClientId=self.CLIENT)
+
+
+
 
     #######################################################################
-    def update_evaultion_metrics(self):
+    def update_evaluation_metrics(self):
         """
         Called per simulation step to update evalution data
         """
@@ -1447,7 +1434,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
             cattle_vel[cattle_idx] = cattle_states[cattle_idx, 10:12]
 
         ep_time = self.step_counter / self.CTRL_FREQ
-        effectiveness = self.eval_system.calculate_effectiveness(cattle_poses , drone_poses)
+        effectiveness = evaluate_herding_effectiveness(cattle_poses , drone_poses)
         self.eval_system.append_timestep_data(self.episode_drone_distances, ep_time, effectiveness, drone_poses, cattle_poses, drone_vel, cattle_vel)
 
     #######################################################################
@@ -1462,7 +1449,7 @@ class BaseAviary(gym.Env, MathematicalFlock):
 
         drone_vel = drone_states[:, 10:13]     # drone velocities
 
-        effectiveness = self.eval_system.calculate_effectiveness(cattle_poses , drone_poses)
+        effectiveness = evaluate_herding_effectiveness(cattle_poses , drone_poses)
         self.eval_system.append_episode_data(self.episode_drone_distances, self.NUM_DRONES, ep_time, effectiveness)
     
     def evaluation_save(self):
