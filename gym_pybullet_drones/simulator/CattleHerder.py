@@ -13,7 +13,7 @@ Monitor logs:
 
     $ tensorboard --logdir models/model-v9-0/tb
 
-    tensorboard --logdir /home/ben/ros_ws/src/RL-Cattle-Herding/gym_pybullet_drones/simulator/models/model-v12-3-3
+    tensorboard --logdir /home/ben/ros_ws/src/RL-Cattle-Herding/gym_pybullet_drones/simulator/models/model-v15-1-1
 -------
 """
 
@@ -44,20 +44,20 @@ DEFAULT_OUTPUT_FOLDER = 'models'
 DEFAULT_COLAB = False
 
 TARGET_REWARD = 99999   # reward threshold to stop training
-LOAD_FILE = None #"model-v12-3-3/best_model.zip"
-NEW_MODEL_NAME = 'model-v13-1-1'
+LOAD_FILE = None #"model-v15-1-1/best_model.zip"
+NEW_MODEL_NAME = 'model-v15-2-2'
 
 DEFAULT_OBS = ObservationType('cokin') # collaborative kinematics
 DEFAULT_ACT = ActionType('vel')        # 'rpm' | 'pid' | 'vel' | 'one_d_rpm' | 'one_d_pid'
-DEFAULT_NUM_ENVS = 12
+DEFAULT_NUM_ENVS = 16
 DEFAULT_DRONES = 12
 DEFAULT_CATTLE = 16
 
 MAX_TIMESTEPS = 1000000
 
-EVALUATE_ONLY = True  # skip training, run evaluation only
-NUM_EVALUTION_EPS = 1
-EVAL_FILE = "model-v13-1-1/"
+EVALUATE_ONLY = False  # skip training, run evaluation only
+NUM_EVALUTION_EPS = 10
+EVAL_FILE = "model-v15-2-1/"
 EVALUATION_FREQUENCY = 2048
 
 

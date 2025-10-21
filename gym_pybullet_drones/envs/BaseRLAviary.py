@@ -251,8 +251,8 @@ class BaseRLAviary(BaseAviary):
         lo = -np.inf
         hi = np.inf
 
-        # Own state vector: x, y, z + roll, pitch, yaw + linear vel + angular vel
-        own_state_len = 3 + 3 + 3  # 9
+        # Own state vector z + roll, pitch, yaw + linear vel + angular vel
+        own_state_len = 1 + 3 + 3 + 3  # 10
 
         # Total observation length: own state + neighbors + nearby cattle + action buffer
         obs_len = own_state_len + self.MAX_NEIGHBORS * 2 + self.MAX_NEARBY_CATTLE * 2 + self.ACTION_BUFFER_SIZE * self.ACTION_SPACE
@@ -276,7 +276,7 @@ class BaseRLAviary(BaseAviary):
         M = self.NUM_CATTLE
 
         # Determine the length of each drone's observation
-        obs_len_per_drone = 9 + self.MAX_NEIGHBORS*2 + self.MAX_NEARBY_CATTLE*2 + self.ACTION_BUFFER_SIZE * self.ACTION_SPACE
+        obs_len_per_drone = 10 + self.MAX_NEIGHBORS*2 + self.MAX_NEARBY_CATTLE*2 + self.ACTION_BUFFER_SIZE * self.ACTION_SPACE
 
         # Pre-allocate full observation array with zeros
         obs = np.zeros((self.MAX_NUM_DRONES, obs_len_per_drone), dtype=np.float32)
@@ -289,6 +289,7 @@ class BaseRLAviary(BaseAviary):
 
             # Own state: RPY, linear vel, angular vel
             obs_i = list(np.hstack([
+                obs_vec[2],
                 obs_vec[7:10],        # roll, pitch, yaw
                 obs_vec[10:13],       # linear velocity vx, vy, vz
                 obs_vec[13:16],       # angular velocity wx, wy, wz

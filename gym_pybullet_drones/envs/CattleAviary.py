@@ -3,7 +3,7 @@ import pybullet as p
 
 from gym_pybullet_drones.envs.BaseRLAviary import BaseRLAviary
 from gym_pybullet_drones.utils.enums import DroneModel, Physics, ActionType, ObservationType
-
+from gym_pybullet_drones.utils.curriculum_learning import CurriculumLearning
 from gym_pybullet_drones.utils.evaluation import evaluate_herding_effectiveness, evaluate_formation_quality
 
 class CattleAviary(BaseRLAviary):
@@ -96,11 +96,9 @@ class CattleAviary(BaseRLAviary):
         self.SPACING_R0 = 1.3           # piecewise threshold
         self.SPACING_LAM = 0.8          # exp decay
         #### Reward Weights ##################################
-        self.REWARD_WEIGHTS = dict(drone_to_drone_spacing = 0.8,
-                                   centroid_distance= 0.8, 
-                                   drone_to_cattle_spacing = 0.5,
-                                   surronding_cattle = 1
-                                   )
+        self.curriculum_starting_level = 0
+        self.curriculum = CurriculumLearning(self.curriculum_starting_level)
+        self.drone_spacing_clock = 0 
         
     ################################################################################
     
@@ -132,21 +130,24 @@ class CattleAviary(BaseRLAviary):
         # Average over drones and neighbours (2)
         drone_to_drone_spacing_reward /= (self.NUM_DRONES * 2.0)
 
-        # # Optional: clip to a sensible range
-        # drone_to_drone_spacing_reward = float(np.clip(drone_to_drone_spacing_reward, -2.0, 1.0))
+        # REWARD 2: Drone-Survival Reward
+        drone_survival_reward = 0.1
 
-
-        # REWARD 2: Drone-to-cattle centroid reward
-        centroid_distance_reward = 0
+        # REWARD 3: Cattle Approach Reward
+        cattle_approach_reward = 0
         max_step_distance = self.SPEED_LIMIT/self.CTRL_FREQ
         cent_dist = np.linalg.norm(drone_centroid - cattle_centroid)
         if self.prev_cent_dists is not None:
             cent_dist_change = self.prev_cent_dists - cent_dist
-            centroid_distance_reward = np.clip((cent_dist_change / (max_step_distance + 1e-6)) * 5, -1.0, 1.0)
+            cattle_approach_reward = np.clip((cent_dist_change / (max_step_distance + 1e-6)) * 5, -1.0, 1.0)
         self.prev_cent_dists = cent_dist
         
+        # REWARD 4: Herding effectiveness reward (surrounding cattle)
+        herding_effectiveness_reward = 0
+        effectiveness = evaluate_herding_effectiveness(cattle_poses,drones_poses)
+        herding_effectiveness_reward = effectiveness/100
 
-        # REWARD 3: Drone-to-cattle spacing reward
+        # REWARD 5: Drone-to-cattle spacing reward
         drone_to_cattle_spacing_reward = 0.0
         for i in range(self.NUM_DRONES):
             pos_i = drones_poses[i]
@@ -157,34 +158,37 @@ class CattleAviary(BaseRLAviary):
         #Average over drones
         drone_to_cattle_spacing_reward /= self.NUM_DRONES
 
-        # REWARD 4: Herding effectiveness reward (surrounding cattle)
-        herding_effect_reward = 0
-        effectiveness = evaluate_herding_effectiveness(cattle_poses,drones_poses)
-        herding_effect_reward = effectiveness/100
-
-        # PENALTY 1: Step penalty
-        small_step_penalty = 0.01
 
         #Combine Rewards
         r = (
-            centroid_distance_reward * self.REWARD_WEIGHTS["centroid_distance"]
-            + drone_to_drone_spacing_reward * self.REWARD_WEIGHTS["drone_to_drone_spacing"]
-            + drone_to_cattle_spacing_reward * self.REWARD_WEIGHTS["drone_to_cattle_spacing"]
-            + herding_effect_reward * self.REWARD_WEIGHTS["surronding_cattle"]
-             - small_step_penalty
+            drone_to_drone_spacing_reward * self.curriculum.current_curriculum["drone_to_drone_spacing"]
+            + drone_survival_reward * self.curriculum.current_curriculum['drone_survival']
+            + cattle_approach_reward * self.curriculum.current_curriculum['cattle_approach']
+            + herding_effectiveness_reward * self.curriculum.current_curriculum['effectiveness']
+            + drone_to_cattle_spacing_reward * self.curriculum.current_curriculum['cattle_to_drone_spacing']
+
         )
 
         if self.is_evaluating:
             print("\n==== REWARD Summary ====")
-            print(f"Drone-to-Drone Spacing Reward: {drone_to_drone_spacing_reward:.4f}")
-            # print(f"Centroid Distance: {cent_dist:.4f}")
-            # print(f"Centroid Distance Reward: {centroid_distance_reward:.4f}")
+            print(f"Curriculum Level: {self.curriculum.curriculum_level}")
+            print(f"drone_to_drone_spacing Reward: {drone_to_drone_spacing_reward:.4f}")
+            print(f"drone_survival Reward: {drone_survival_reward:.4f}")
+            print(f"cattle_approach: {cattle_approach_reward:.4f}")
+            print(f"effectiveness Reward: {herding_effectiveness_reward:.4f}")
+            print(f"cattle_to_drone_spacing Reward: {drone_to_cattle_spacing_reward:.4f}")
             print(f"Initial Combined Reward (before end-episode bonuses/penalties): {r:.4f}")
 
-        # REWARD 4: End of episode reward
-        done = self._computeTerminated() or self._computeTruncated()
-        if done:
+        # REWARD 6: End of episode reward
+        term = self._computeTerminated()
+        trun = self._computeTruncated()
+
+        if term:
             r += self._endOfEpisodeReward(cent_dist)
+            self.curriculum.evaluate_curriculum_results(term)
+        elif trun:
+            r -= 100
+
            
         return float(r)
     ################################################################################
@@ -199,44 +203,76 @@ class CattleAviary(BaseRLAviary):
         drones_poses = drone_states[:, :2] 
         cattle_poses = cattle_states[:, :2]
 
-        reward = 0
+        if self.curriculum.curriculum_level in [0, 1]:
+            satisfied_drones = 0
+            total_reward = 0
 
-         #Reward for drone centorid being near cattle centroid
-        if cent_dist < self.REQUIRED_CENTROID_DISTANCE:
-            reward+= 40
-        else:
-            reward -= cent_dist * 1.5
+            desired = self.curriculum.current_curriculum["drone_desired_distance"]
+            tol = self.curriculum.current_curriculum["drone_spacing_tolerance"]
+            upper_tolerance_range = desired + desired* tol
+            lower_tolerance_range = desired - desired *  tol
 
-        # SUCCESS CONDITION 1: Perfect formation + herding
-        effectiveness = evaluate_herding_effectiveness(cattle_poses,drones_poses)
-        if effectiveness == 100: #missive reward for herding all cattle
-            reward += 100
-        elif effectiveness == 0: #negative reward for herding nothing
-            reward -= 40
-        else:
-            reward +=  effectiveness/3
+            #for each drone in NUM_DRONE each drone that statsies:
+            for i in range(self.NUM_DRONES):
+                pos_i = drones_poses[i]
+                other_dists = np.linalg.norm(drones_poses - pos_i, axis=1)
+                other_dists[i] = np.inf  # ignore self
 
-        # FAILURE CONDITION 1: Altitude safety
-        for i in range(self.NUM_DRONES):
-            z = drone_states[i][2]
-            if abs(z - self.DRONE_TARGET_ALTITUDE) > self.MAX_ALT_ERROR:
-                print(f"Drone {i} Altitude loss with {z} alltidue with max error {self.MAX_ALT_ERROR}, from target {self.DRONE_TARGET_ALTITUDE}")
-                reward -= 100  
+                # get two smallest distances
+                nearest_two = np.partition(other_dists, 1)[:2]
+                #if the distances are within the drone desired distance and tolerance give a reward euqapl to NUMDRONES/50, if all drones are satisfed retrun 100
 
-        # FAILURE CONDITION 2: Collision detection 
-        for i in range(self.NUM_DRONES):
-            for j in range(i + 1, self.NUM_DRONES):
-                dist = np.linalg.norm(drones_poses[i] - drones_poses[j])
-                if dist < self.COLLISION_THRESHOLD:
-                    reward -= 100
+                if np.all((nearest_two >= lower_tolerance_range) & (nearest_two <= upper_tolerance_range)):
+                    total_reward += 50.0 / self.NUM_DRONES
+                    satisfied_drones += 1
+                    
+            if satisfied_drones == self.NUM_DRONES:
+                return 100.0
+            
+            return total_reward
 
-        # FAILURE CONDITION 3: Formation breakdown
 
-        # FAILURE CONDITION 4: Mission area boundary
-        if cent_dist > self.MISSION_BOUNDARY:
-            reward -= 100
+        if self.curriculum.curriculum_level == 2 or self.curriculum.curriculum_level == 3:
+            cattle_centroid = self.HerdCentroid()
+            drone_centroid = self.DroneCentroid()
+            cent_dist = np.linalg.norm(drone_centroid - cattle_centroid)
+            if cent_dist < self.curriculum.current_curriculum["cattle_approach_min_distance"]:
+                return 100
 
-        return reward
+        if self.curriculum.curriculum_level == 4:
+            herded_effectiveness = evaluate_herding_effectiveness(cattle_poses, drones_poses)
+            if herded_effectiveness > self.curriculum.current_curriculum["min_effectiveness"]:
+                return herded_effectiveness * 2
+            
+                
+        if self.curriculum.curriculum_level == 5:
+            herded_effectiveness = evaluate_herding_effectiveness(cattle_poses, drones_poses)
+            if herded_effectiveness > self.curriculum.current_curriculum["min_effectiveness"]:
+                satisfied_drones = 0
+                total_reward = 0
+                desired = self.curriculum.current_curriculum["cattle_desired_distance"]
+                tol = self.curriculum.current_curriculum["cattle_spacing_tolerance"]
+                upper_tolerance_range = desired + desired* tol
+                lower_tolerance_range = desired - desired *  tol
+
+                #for each drone in NUM_DRONE each drone that statsies:
+                for i in range(self.NUM_DRONES):
+                    pos_i = drones_poses[i]
+                    other_dists = np.linalg.norm(drones_poses - pos_i, axis=1)
+                    other_dists[i] = np.inf  # ignore self
+
+                    # get two smallest distances
+                    nearest_two = np.partition(other_dists, 1)[:2]
+                    #if the distances are within the drone desired distance and tolerance give a reward euqapl to NUMDRONES/50, if all drones are satisfed retrun 100
+
+                    if np.all((nearest_two >= lower_tolerance_range) & (nearest_two <= upper_tolerance_range)):
+                        total_reward += self.NUM_DRONES / 50.0
+                        satisfied_drones += 1
+                        
+                if satisfied_drones == self.NUM_DRONES:
+                    return 100.0
+
+        return 0
 
 
     ################################################################################
@@ -250,21 +286,66 @@ class CattleAviary(BaseRLAviary):
         drones_poses = drone_states[:, :2] 
         cattle_poses = cattle_states[:, :2]
 
-        cattle_centroid = self.HerdCentroid()
-        drone_centroid = self.DroneCentroid()
-        cent_dist = np.linalg.norm(drone_centroid - cattle_centroid, axis=-1)
+        #SUCCESS CONDITION C1/2: Drones Spaced        
+        #if the two cleost drones are spcaed within the tolerace win!!!! 
+        if self.curriculum.curriculum_level == 0 or self.curriculum.curriculum_level == 1:
+            desired = self.curriculum.current_curriculum["drone_desired_distance"]
+            tol = self.curriculum.current_curriculum["drone_spacing_tolerance"]
 
+            upper_tolerance_range = desired + desired * tol
+            lower_tolerance_range = desired - desired * tol
+
+            min_spacing = np.min([
+                np.linalg.norm(d1 - d2)
+                for i, d1 in enumerate(drones_poses)
+                for j, d2 in enumerate(drones_poses)
+                if i != j
+            ])
+            if min_spacing < upper_tolerance_range  and min_spacing >  lower_tolerance_range:
+                self.drone_spacing_clock += 1/240
+                if self.drone_spacing_clock >= self.curriculum.current_curriculum['drone_spacing_hold_timer']:
+                    print("TERMINATED: Drones Spaced!")
+                    return True
+            else:
+                self.drone_spacing_clock = 0
             
-        # SUCCESS CONDITION 1: Perfect formation + herding
-        if cent_dist < self.REQUIRED_CENTROID_DISTANCE: 
-            herded_effectiveness = evaluate_herding_effectiveness(cattle_poses, drones_poses)
-            if herded_effectiveness > self.EFFECTIVENESS_THRESHOLD:
-                # Check if formation is maintained
-                # formation_quality = self._evaluate_formation_quality(drones_poses)
-                # if formation_quality > 0.7:
-                #     print(f"SUCCESS: Perfect formation + herding! Effectiveness: {effectiveness:.1f}, Formation: {formation_quality:.2f}")
-                    # return True
+        #SUCCESS CONDITION C3/4: Cattle Approach
+        #if the distacne to the cattle is wihtin toleracne win!!!!!!
+        elif self.curriculum.curriculum_level == 2 or self.curriculum.curriculum_level == 3: 
+            cattle_centroid = self.HerdCentroid()
+            drone_centroid = self.DroneCentroid()
+            cent_dist = np.linalg.norm(drone_centroid - cattle_centroid, axis=-1)           
+            if cent_dist < self.curriculum.current_curriculum["cattle_approach_min_distance"]:
+                print("TERMINATED: Cattle Approached!")
                 return True
+
+        #SCUCCESS CONDITION C5: Surrounding Cattle
+        elif self.curriculum.curriculum_level == 4:
+            herded_effectiveness = evaluate_herding_effectiveness(cattle_poses, drones_poses)
+            if herded_effectiveness > self.curriculum.current_curriculum["min_effectiveness"]:
+                print("TERMINATED: Surrounded Cattle!")
+                return True
+
+
+        #SCUCCESS CONDITION C6: Cattle Spacing
+        elif self.curriculum.curriculum_level == 5:
+            herded_effectiveness = evaluate_herding_effectiveness(cattle_poses, drones_poses)
+            if herded_effectiveness > self.curriculum.current_curriculum["min_effectiveness"]:
+                desired = self.curriculum.current_curriculum["cattle_desired_distance"]
+                tol = self.curriculum.current_curriculum["cattle_spacing_tolerance"]
+                upper_tolerance_range = desired + desired * tol
+                lower_tolerance_range = desired - desired * tol
+
+                min_spacing = np.min([
+                    np.linalg.norm(d1 - d2)
+                    for i, d1 in enumerate(drones_poses)
+                    for j, d2 in enumerate(drones_poses)
+                    if i != j
+                ])
+                if min_spacing < upper_tolerance_range  and min_spacing >  lower_tolerance_range:
+                    print("TERMINATED: Cattle Spacing!")
+                    return True
+
 
         return False
 
@@ -281,17 +362,17 @@ class CattleAviary(BaseRLAviary):
         """
         cattle_centroid = self.HerdCentroid()
         drone_centroid = self.DroneCentroid()
+
         cent_dist = np.linalg.norm(drone_centroid - cattle_centroid, axis=-1)
 
         drone_states = np.array([self._getDroneStateVector(i) for i in range(self.NUM_DRONES)])
         drones_poses = drone_states[:, :2] 
 
-            
         # FAILURE CONDITION 1: Altitude safety
         for i in range(self.NUM_DRONES):
             z = drone_states[i][2]
             if abs(z - self.DRONE_TARGET_ALTITUDE) > self.MAX_ALT_ERROR:
-                print(f"Drone {i} Altitude loss with {z} alltidue with max error {self.MAX_ALT_ERROR}, from target {self.DRONE_TARGET_ALTITUDE}")
+                print(f"TRUNCATED: Drone {i} Altitude loss with {z}")
                 return True    
 
         # FAILURE CONDITION 2: Collision detection 
@@ -380,7 +461,7 @@ class CattleAviary(BaseRLAviary):
         import numpy as np
 
         # params
-        d_star = 0.8 #deisred distance
+        d_star = self.curriculum.current_curriculum['drone_desired_distance'] #deisred distance
         sigma = 0.25
         collision_thresh = 0.3
         collision_penalty = 1.0
