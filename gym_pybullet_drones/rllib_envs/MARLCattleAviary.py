@@ -384,7 +384,7 @@ class MARLCattleAviary(BaseMARLAviary):
 
     ################################################################################
     
-    def _computeInfo(self):
+    def _computeInfo(self, drone_id):
         """Computes the current info dict(s).
 
         Unused.
