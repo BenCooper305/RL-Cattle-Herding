@@ -33,6 +33,14 @@ utils -> flockUtils -
          utils
 
 
+There are two envrioments and two simulators. 
+For envrioments there is the sb3_envs which is used for the CTDE simulator. The second enviroment is the rllib envrioment this is for the DTDE
+
+the sb3_envs has been super sccedded by the rllib_envs.
+models with the naming convetions using a numeic naming was the leading term is for the older CTDE simulaotr. models whoes leanding term is alphabtical is for the DTDE simulator
+
+For SB3 use model 16-5 as the deafult
+For RLLIB 
 
 ## Cattle Herding Usage
 
