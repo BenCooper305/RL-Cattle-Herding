@@ -17,8 +17,10 @@ DEFAULT_GUI = False
 DEFAULT_OUTPUT_FOLDER = "ray_results"
 DEFAULT_DRONES = 6   # if using per-agent distinct policies, must be fixed
 DEFAULT_CATTLE = 8
-MAX_TIMESTEPS = 200_000
+DEFAULT_NUM_ENVS = 4
+MAX_TIMESTEPS = 1_000
 NUM_EVAL_EPISODES = 5
+
 
 # Choose policy mode:
 # True = one shared policy for all agents (recommended)
@@ -76,7 +78,7 @@ def run(output_folder=DEFAULT_OUTPUT_FOLDER, gui=DEFAULT_GUI, num_drones=DEFAULT
         PPOConfig()
         .environment(env="marl_cattle_env", env_config=env_config)
         .framework("torch")
-        .env_runners(num_env_runners=4, num_envs_per_env_runner=1, rollout_fragment_length="auto")
+        .env_runners(num_env_runners=DEFAULT_NUM_ENVS, num_envs_per_env_runner=1, rollout_fragment_length="auto")
         .training(
             gamma=0.99,
             lr=3e-4,
@@ -87,7 +89,7 @@ def run(output_folder=DEFAULT_OUTPUT_FOLDER, gui=DEFAULT_GUI, num_drones=DEFAULT
             clip_param=0.1
         )
         .evaluation(
-            evaluation_interval=1,
+            evaluation_interval=0,
             evaluation_duration=NUM_EVAL_EPISODES,
             evaluation_config={"gui": False, "record": False}
         )
@@ -104,9 +106,10 @@ def run(output_folder=DEFAULT_OUTPUT_FOLDER, gui=DEFAULT_GUI, num_drones=DEFAULT
     tuner = tune.Tuner(
         PPO,
         run_config=RunConfig(
-            name="DTDE_MARL_Cattle",
+            name="DTDE_MARL_Cattle_TEST",
             storage_path=storage_path,
-            stop={"timesteps_total": MAX_TIMESTEPS},
+            #stop={"timesteps_total": MAX_TIMESTEPS},
+            stop={"training_iteration": 500},
             checkpoint_config=CheckpointConfig(checkpoint_at_end=True),
             callbacks=[tb_logger],
         ),

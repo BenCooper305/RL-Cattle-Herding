@@ -2,7 +2,7 @@ import numpy as np
 
 
 class CurriculumLearning():
-    def __init__(self, starting_level=6):
+    def __init__(self, starting_level=0):
         self.curriculum_level = starting_level
         self.curriculum_success_tally = 0
 
@@ -169,7 +169,7 @@ class CurriculumLearning():
                 #success
                 'required_tally': 600
             },
-            6: {#Test curroiulum
+            7: {#Test curroiulum
                 #episode_params
                 'drone_desired_distance': 0.8,
                 'drone_spacing_tolerance': 0.3,             # %-based
@@ -182,10 +182,10 @@ class CurriculumLearning():
                 'max_drones': 12,
                 'episode_length': 80,      
                 #reward_weightings
-                'drone_to_drone_spacing_simple': 0.7,
+                'drone_to_drone_spacing_simple': 0.0,
                 'drone_to_drone_spacing_complex': 0.0,
                 'drone_survival': -0.0,
-                'cattle_approach': 0.8,
+                'cattle_approach': 1,
                 'effectiveness': 1,
                 'cattle_to_drone_spacing': 0.0,
                 #success

@@ -59,7 +59,7 @@ class CattleAviary(BaseRLAviary):
 
         """
         #### Reward Weights ##################################
-        self.curriculum_starting_level = 0
+        self.curriculum_starting_level = 7
         self.curriculum = CurriculumLearning(self.curriculum_starting_level)
         self.drone_spacing_clock = 0 
         #### Episode Length ##################################

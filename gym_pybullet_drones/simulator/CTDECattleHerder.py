@@ -10,7 +10,7 @@ Setup:
 Run training:
 
     $ conda activate drones
-    $ python CattleHerder.py
+    $ python CTDECattleHerder.py
 
 Monitor logs:
 
@@ -49,7 +49,7 @@ DEFAULT_COLAB = False
 
 TARGET_REWARD = 99999   # reward threshold to stop training
 LOAD_FILE = None #'model-v16-5/best_model.zip'#'model-v16-3/best_model.zip' #"cur_test_level_0_wth_simple_drone_reward-1/best_model.zip"
-NEW_MODEL_NAME = 'model-v16-7-exp'
+NEW_MODEL_NAME = 'model-v16-8-exp'
 
 DEFAULT_OBS = ObservationType('cokin') # collaborative kinematics
 DEFAULT_ACT = ActionType('vel')        # 'rpm' | 'pid' | 'vel' | 'one_d_rpm' | 'one_d_pid'
@@ -57,7 +57,7 @@ DEFAULT_NUM_ENVS = 24
 DEFAULT_DRONES = 12
 DEFAULT_CATTLE = 16
 
-MAX_TIMESTEPS = 500000
+MAX_TIMESTEPS = 2_000_000
 
 EVALUATE_ONLY = False  # skip training, run evaluation only
 NUM_EVALUTION_EPS = 5

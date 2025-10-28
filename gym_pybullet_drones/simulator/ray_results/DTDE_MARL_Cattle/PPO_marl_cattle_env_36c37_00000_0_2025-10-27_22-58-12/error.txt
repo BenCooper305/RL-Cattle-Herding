@@ -1,0 +1,38 @@
+Failure # 1 (occurred at 2025-10-27_22-59-27)
+[36mray::PPO.train()[39m (pid=3347573, ip=192.168.1.104, actor_id=7880fd31945d9739c0cb635901000000, repr=PPO(env=marl_cattle_env; env-runners=4; learners=0; multi-agent=True))
+  File "/home/ben/.local/lib/python3.10/site-packages/ray/tune/trainable/trainable.py", line 331, in train
+    raise skipped from exception_cause(skipped)
+  File "/home/ben/.local/lib/python3.10/site-packages/ray/tune/trainable/trainable.py", line 328, in train
+    result = self.step()
+  File "/home/ben/.local/lib/python3.10/site-packages/ray/rllib/algorithms/algorithm.py", line 1065, in step
+    eval_results = self._run_one_evaluation(parallel_train_future=None)
+  File "/home/ben/.local/lib/python3.10/site-packages/ray/rllib/algorithms/algorithm.py", line 3549, in _run_one_evaluation
+    eval_results = self.evaluate(
+  File "/home/ben/.local/lib/python3.10/site-packages/ray/rllib/algorithms/algorithm.py", line 1290, in evaluate
+    ) = self._evaluate_on_local_env_runner(self.eval_env_runner)
+  File "/home/ben/.local/lib/python3.10/site-packages/ray/rllib/algorithms/algorithm.py", line 1434, in _evaluate_on_local_env_runner
+    episodes = env_runner.sample(
+  File "/home/ben/.local/lib/python3.10/site-packages/ray/rllib/env/multi_agent_env_runner.py", line 230, in sample
+    samples = self._sample(
+  File "/home/ben/.local/lib/python3.10/site-packages/ray/rllib/env/multi_agent_env_runner.py", line 407, in _sample
+    episodes[env_index].add_env_step(
+  File "/home/ben/.local/lib/python3.10/site-packages/ray/rllib/env/multi_agent_episode.py", line 470, in add_env_step
+    raise MultiAgentEnvError(
+ray.rllib.utils.error.MultiAgentEnvError: Agent agent_1 already had its `SingleAgentEpisode.is_done` set to True, but still received data in a following step! obs=[  0.12430473   1.5080683   -0.32052246  -1.5404396   -1.1804991
+   0.32491004  -2.1842067    0.87048155   0.8638952    0.6197681
+   1.2469862    0.2507292   -2.1748214   -0.01182319   0.
+   0.           0.           0.          -2.8113413  -10.201296
+  -3.936134    -9.684028    -3.7168682  -10.349088    -2.873044
+ -10.867038    -3.4830384  -11.58646     -2.34049    -11.820898
+  -3.9481547  -10.9517145   -2.5425491  -11.215556     0.
+   0.           0.           0.           0.           0.
+   0.           0.           0.           0.           0.
+   0.           0.           0.           0.           0.
+   0.           0.           0.           0.           0.
+   0.           0.           0.           0.           0.
+   0.           0.           0.           0.           0.
+   0.           0.           0.           0.           0.
+   0.           0.           0.           0.           0.
+   0.           0.           0.           0.           0.
+   0.           0.           0.           0.           0.
+   0.        ] act=None rew=-49.229328305728416 info={'answer': 42} extra_model_outputs=None.

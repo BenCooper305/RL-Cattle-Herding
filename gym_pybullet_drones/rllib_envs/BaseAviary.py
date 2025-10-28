@@ -431,7 +431,9 @@ class BaseAviary(gym.Env, MathematicalFlock):
         info = {i: self._computeInfo(i) for i in range(self.NUM_DRONES)}
 
         self.update_evaluation_metrics()
-        self.step_counter += self.PYB_STEPS_PER_CTRL
+        # Count one control step per env.step() call so episode length
+        # aligns with CTRL_FREQ and RLlib timesteps.
+        self.step_counter += 1
 
         return obs, reward, done, truncated, info
     
